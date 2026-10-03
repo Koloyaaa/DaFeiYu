@@ -42,6 +42,12 @@
   const resultTitle = document.getElementById("result-title");
   const resultScore = document.getElementById("result-score");
   const resultAvatar = document.getElementById("result-avatar");
+  const touchDropButton = document.getElementById("touch-drop-button");
+  const touchDropLabel = document.getElementById("touch-drop-label");
+
+  const hasTouchInput = (navigator.maxTouchPoints || 0) > 0
+    || (window.matchMedia && window.matchMedia("(any-pointer: coarse)").matches);
+  if (hasTouchInput) document.body.classList.add("has-touch-input");
 
   const collectionRows = stages.map((stage, index) => {
     const row = document.createElement("li");
@@ -149,6 +155,21 @@
     return piece;
   }
 
+  function setPendingDrop(id) {
+    pendingDropId = id;
+    syncTouchDropButton();
+  }
+
+  function syncTouchDropButton() {
+    if (!touchDropButton) return;
+    touchDropButton.disabled = gameOver || pendingDropId !== null;
+    touchDropLabel.textContent = gameOver
+      ? "本局已结束"
+      : pendingDropId !== null
+        ? "等待角色落稳"
+        : "放下角色";
+  }
+
   function dropCharacter() {
     if (gameOver) return;
     if (pendingDropId !== null) {
@@ -161,7 +182,7 @@
     const metrics = metricsFor(currentLevel);
     const x = clamp(aimX, LEFT + metrics.w / 2, RIGHT - metrics.w / 2);
     const dropped = addPiece(currentLevel, x, DROP_Y + metrics.h / 2);
-    pendingDropId = dropped.id;
+    setPendingDrop(dropped.id);
     highestLevel = Math.max(highestLevel, currentLevel);
     currentLevel = nextLevel;
     nextLevel = randomStarter();
@@ -191,6 +212,14 @@
     event.preventDefault();
     aimX = pointerX(event);
     canvas.focus({ preventScroll: true });
+    if (event.pointerType !== "mouse") {
+      document.body.classList.add("has-touch-input");
+      if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+    dropCharacter();
+  });
+  touchDropButton.addEventListener("click", () => {
     dropCharacter();
   });
   document.getElementById("restart-button").addEventListener("click", restart);
@@ -225,7 +254,7 @@
     aimX = W / 2;
     gameOver = false;
     won = false;
-    pendingDropId = null;
+    setPendingDrop(null);
     simulationTime = 0;
     lastDropNotice = -Infinity;
     updateInterface();
@@ -269,7 +298,7 @@
     bounds = pieceSilhouetteAabb(piece);
     if (bounds.bottom > FLOOR) {
       piece.y -= bounds.bottom - FLOOR;
-      if (piece.id === pendingDropId && piece.vy > 0) pendingDropId = null;
+      if (piece.id === pendingDropId && piece.vy > 0) setPendingDrop(null);
       if (piece.vy > 105) {
         piece.vy = -piece.vy * 0.36;
         piece.squash = Math.max(piece.squash, 0.12);
@@ -291,12 +320,12 @@
         if (!overlapPolygons(a, b)) continue;
 
         if (a.level === b.level && a.mergeLock <= 0 && b.mergeLock <= 0 && simulationTime - a.bornAt > 0.05 && simulationTime - b.bornAt > 0.05) {
-          if (a.id === pendingDropId || b.id === pendingDropId) pendingDropId = null;
+          if (a.id === pendingDropId || b.id === pendingDropId) setPendingDrop(null);
           mergeCharacters(a, b);
           merged = true;
           break;
         }
-        if (isPendingDropLanding(a, b)) pendingDropId = null;
+        if (isPendingDropLanding(a, b)) setPendingDrop(null);
         resolveBounce(a, b);
       }
       if (merged || gameOver) break;
@@ -626,6 +655,7 @@
   function finishGame(completed) {
     if (gameOver) return;
     gameOver = true;
+    syncTouchDropButton();
     resultScore.textContent = score.toLocaleString("zh-CN");
     resultAvatar.hidden = !completed;
     if (completed) {
@@ -744,6 +774,7 @@
   }
 
   updateInterface();
+  syncTouchDropButton();
   resizeCanvas();
   requestAnimationFrame(frame);
 })();

@@ -31,7 +31,7 @@
 
           <div class="board-frame">
             <canvas id="game" width="420" height="620" tabindex="0" role="img"
-              aria-label="合成大肥鱼游戏区域。移动鼠标或手指选择位置，点击角色放置；角色只会在碰撞时根据撞击位置旋转，相同模型相遇会合成下一阶段。">
+              aria-label="合成大肥鱼游戏区域。使用鼠标或触屏选择角色位置；触屏时需按放下角色按钮确认。角色只会在碰撞时根据撞击位置旋转，相同模型相遇会合成下一阶段。">
               你的浏览器不支持画布游戏，请换一个较新的浏览器。
             </canvas>
             <div class="board-top-label" aria-hidden="true"><span>MODEL<br />LAB</span><span class="board-spark">✦</span></div>
@@ -39,7 +39,13 @@
           </div>
 
           <div class="play-footer">
-            <p>拖动选择位置，点一下放下角色；等它碰到其他角色或池底后再放下一个。同款相遇就会合成，碰撞会带来轻微旋转。</p>
+            <p>
+              <span class="desktop-instructions">拖动选择位置，点击棋盘放下角色；等它碰到其他角色或池底后再放下一个。同款相遇就会合成，碰撞会带来轻微旋转。</span>
+              <span class="touch-instructions">轻触或拖动棋盘选择位置，再按下方按钮确认放置。等角色落稳后即可继续。</span>
+            </p>
+            <button class="primary-button touch-drop-button" id="touch-drop-button" type="button" aria-label="放下当前预览的角色">
+              <span aria-hidden="true">↓</span><span id="touch-drop-label" aria-live="polite">放下角色</span>
+            </button>
           </div>
         </section>
 
