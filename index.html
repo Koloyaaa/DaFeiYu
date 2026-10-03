@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>合成大肥鱼 · AI 娘合成</title>
+    <link rel="icon" type="image/png" href="Assets/processed/DeepSeek.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">
+          <img class="brand-icon" src="Assets/processed/DeepSeek.png" alt="" />
+        </div>
+        <div class="brand-copy">
+          <h1>合成大肥鱼</h1>
+        </div>
+        <p class="top-note">让十一位 AI 娘相遇、进化，最终解锁 DeepSeek（大肥鱼）。</p>
+      </header>
+
+      <div class="game-layout">
+        <section class="play-column" aria-labelledby="play-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">合成玩法 <span>·</span> 轻松玩一局</p>
+              <h2 id="play-title">AI 娘合成</h2>
+            </div>
+          </div>
+
+          <div class="board-frame">
+            <canvas id="game" width="420" height="620" tabindex="0" role="img"
+              aria-label="合成大肥鱼游戏区域。移动鼠标或手指选择位置，点击角色放置；角色只会在碰撞时根据撞击位置旋转，相同模型相遇会合成下一阶段。">
+              你的浏览器不支持画布游戏，请换一个较新的浏览器。
+            </canvas>
+            <div class="board-top-label" aria-hidden="true"><span>MODEL<br />LAB</span><span class="board-spark">✦</span></div>
+            <div id="game-toast" class="game-toast" aria-live="polite" hidden></div>
+          </div>
+
+          <div class="play-footer">
+            <p>拖动选择位置，点一下放下角色；等它碰到其他角色或池底后再放下一个。同款相遇就会合成，碰撞会带来轻微旋转。</p>
+          </div>
+        </section>
+
+        <aside class="info-column" aria-label="游戏信息">
+          <section class="score-strip" aria-label="分数">
+            <div class="score-tile score-current">
+              <span>本局积分</span>
+              <strong id="score">0</strong>
+            </div>
+            <div class="score-tile">
+              <span>最高纪录</span>
+              <strong id="best-score">0</strong>
+            </div>
+          </section>
+
+          <section class="next-card" aria-labelledby="next-title">
+            <div class="card-heading">
+              <div><h2 id="next-title">下一个角色</h2></div>
+            </div>
+            <div class="next-avatar-wrap">
+              <img id="next-image" alt="" />
+              <span id="next-rank" class="rank-stamp">01</span>
+            </div>
+            <div class="next-copy"><strong id="next-name">豆包</strong></div>
+          </section>
+
+          <section class="collection-card" aria-labelledby="collection-title">
+            <div class="card-heading collection-heading">
+              <div><p class="eyebrow">合成顺序</p><h2 id="collection-title">AI 娘图鉴</h2></div>
+              <span id="collection-count" class="collection-count">0 / 11</span>
+            </div>
+            <ol id="collection-list" class="collection-list" aria-label="模型进化顺序"></ol>
+          </section>
+
+          <button class="restart-button" id="restart-button" type="button">
+            <span aria-hidden="true">↻</span> 再开一局
+          </button>
+          <p class="keyboard-note">键盘：← → 移动，空格放下，R 重来</p>
+        </aside>
+      </div>
+
+      <footer class="page-footer">
+        <span>作者：DornGames @LéoWEE</span>
+        <nav class="footer-links" aria-label="相关链接">
+          <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">作者 GitHub</a>
+          <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">作品仓库</a>
+        </nav>
+      </footer>
+      <div id="announcer" class="sr-only" aria-live="polite"></div>
+      <dialog id="game-over-dialog" class="result-dialog" aria-labelledby="result-title">
+        <div class="result-spark" aria-hidden="true">✦</div>
+        <p class="eyebrow">本局结果</p>
+        <h2 id="result-title">本局结束</h2>
+        <img id="result-avatar" class="result-avatar" alt="" hidden />
+        <p id="result-copy">这一局已经很棒，来看看下一轮会解锁谁。</p>
+        <div class="result-stats"><span>本局积分</span><strong id="result-score">0</strong></div>
+        <button id="dialog-restart" class="primary-button" type="button">再开一局 <span aria-hidden="true">→</span></button>
+      </dialog>
+      <script src="Assets/processed/manifest.js"></script>
+      <script src="game.js"></script>
+    </main>
+  </body>
+</html>
