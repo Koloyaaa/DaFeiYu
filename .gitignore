@@ -1,0 +1,18 @@
+# Windows and macOS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editors and local workspace settings
+.vscode/
+.idea/
+
+# Python preprocessing cache and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Temporary files and logs
+*.tmp
+*.log
