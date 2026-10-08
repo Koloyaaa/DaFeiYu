@@ -42,8 +42,8 @@
   const resultTitle = document.getElementById("result-title");
   const resultScore = document.getElementById("result-score");
   const resultAvatar = document.getElementById("result-avatar");
-  const touchDropButton = document.getElementById("touch-drop-button");
-  const touchDropLabel = document.getElementById("touch-drop-label");
+  const touchInstructions = document.getElementById("touch-instructions");
+  const TOUCH_DRAG_THRESHOLD = 14;
 
   const hasTouchInput = (navigator.maxTouchPoints || 0) > 0
     || (window.matchMedia && window.matchMedia("(any-pointer: coarse)").matches);
@@ -69,6 +69,8 @@
   let gameOver = false;
   let won = false;
   let pendingDropId = null;
+  let touchAimArmed = false;
+  let activeTouchGesture = null;
   let lastFrame = 0;
   let simulationTime = 0;
   let nextPieceId = 1;
@@ -157,17 +159,18 @@
 
   function setPendingDrop(id) {
     pendingDropId = id;
-    syncTouchDropButton();
+    updateTouchInstructions();
   }
 
-  function syncTouchDropButton() {
-    if (!touchDropButton) return;
-    touchDropButton.disabled = gameOver || pendingDropId !== null;
-    touchDropLabel.textContent = gameOver
-      ? "本局已结束"
+  function updateTouchInstructions() {
+    if (!touchInstructions) return;
+    touchInstructions.textContent = gameOver
+      ? "本局已结束。"
       : pendingDropId !== null
-        ? "等待角色落稳"
-        : "放下角色";
+        ? "等待角色落稳后，再拖动选择下一位的位置。"
+        : touchAimArmed
+          ? "位置已选好，再轻触棋盘即可放置。"
+          : "拖动棋盘选择位置，松手后再轻触棋盘放置。短距离轻触只移动预览，不会放下角色。";
   }
 
   function dropCharacter() {
@@ -182,6 +185,7 @@
     const metrics = metricsFor(currentLevel);
     const x = clamp(aimX, LEFT + metrics.w / 2, RIGHT - metrics.w / 2);
     const dropped = addPiece(currentLevel, x, DROP_Y + metrics.h / 2);
+    touchAimArmed = false;
     setPendingDrop(dropped.id);
     highestLevel = Math.max(highestLevel, currentLevel);
     currentLevel = nextLevel;
@@ -205,22 +209,59 @@
   }
 
   canvas.addEventListener("pointermove", (event) => {
-    aimX = pointerX(event);
+    if (event.pointerType === "mouse") {
+      aimX = pointerX(event);
+      return;
+    }
+    const gesture = activeTouchGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - gesture.startX) >= TOUCH_DRAG_THRESHOLD) gesture.horizontalDrag = true;
+    if (!gesture.armedAtStart || gesture.horizontalDrag) aimX = pointerX(event);
   });
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) return;
     event.preventDefault();
-    aimX = pointerX(event);
     canvas.focus({ preventScroll: true });
-    if (event.pointerType !== "mouse") {
-      document.body.classList.add("has-touch-input");
-      if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
+    if (event.pointerType === "mouse") {
+      aimX = pointerX(event);
+      dropCharacter();
       return;
     }
-    dropCharacter();
+    document.body.classList.add("has-touch-input");
+    if (activeTouchGesture) return;
+    const armedAtStart = touchAimArmed;
+    if (!armedAtStart) aimX = pointerX(event);
+    activeTouchGesture = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      armedAtStart,
+      horizontalDrag: false,
+    };
+    if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
   });
-  touchDropButton.addEventListener("click", () => {
-    dropCharacter();
+  window.addEventListener("pointerup", (event) => {
+    const gesture = activeTouchGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    activeTouchGesture = null;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const horizontalDrag = gesture.horizontalDrag || Math.abs(deltaX) >= TOUCH_DRAG_THRESHOLD;
+    const shortTap = Math.hypot(deltaX, deltaY) < TOUCH_DRAG_THRESHOLD;
+    if (gesture.armedAtStart && shortTap) {
+      touchAimArmed = false;
+      updateTouchInstructions();
+      dropCharacter();
+      return;
+    }
+    if (horizontalDrag) {
+      aimX = pointerX(event);
+      touchAimArmed = !gameOver && pendingDropId === null;
+    }
+    updateTouchInstructions();
+  });
+  window.addEventListener("pointercancel", (event) => {
+    if (activeTouchGesture?.pointerId === event.pointerId) activeTouchGesture = null;
   });
   document.getElementById("restart-button").addEventListener("click", restart);
   document.getElementById("dialog-restart").addEventListener("click", () => {
@@ -254,6 +295,8 @@
     aimX = W / 2;
     gameOver = false;
     won = false;
+    touchAimArmed = false;
+    activeTouchGesture = null;
     setPendingDrop(null);
     simulationTime = 0;
     lastDropNotice = -Infinity;
@@ -655,7 +698,7 @@
   function finishGame(completed) {
     if (gameOver) return;
     gameOver = true;
-    syncTouchDropButton();
+    updateTouchInstructions();
     resultScore.textContent = score.toLocaleString("zh-CN");
     resultAvatar.hidden = !completed;
     if (completed) {
@@ -774,7 +817,7 @@
   }
 
   updateInterface();
-  syncTouchDropButton();
+  updateTouchInstructions();
   resizeCanvas();
   requestAnimationFrame(frame);
 })();
