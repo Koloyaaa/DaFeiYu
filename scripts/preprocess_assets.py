@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+from scipy.spatial import ConvexHull
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,8 +45,7 @@ BACKGROUND_MAX_SPREAD = 42
 ALPHA_FADE_START = 7.0
 ALPHA_FADE_END = 42.0
 ALPHA_BOUNDS_THRESHOLD = 24
-COLLISION_POLYGON_MAX_POINTS = 32
-COLLISION_POLYGON_TOLERANCE = 0.65
+COLLISION_POLYGON_MAX_POINTS = 20
 COLLISION_ALPHA_THRESHOLD = 24
 
 
@@ -67,67 +67,6 @@ def connected_background(rgb: np.ndarray) -> np.ndarray:
     )
 
 
-def trace_outer_contour(binary_mask: np.ndarray) -> list[tuple[int, int]]:
-    """Trace the largest exterior loop along the pixel-cell edges."""
-    filled = ndimage.binary_fill_holes(binary_mask)
-    labels, label_count = ndimage.label(filled)
-    if label_count == 0:
-        return []
-    sizes = np.bincount(labels.ravel())
-    sizes[0] = 0
-    filled = labels == int(np.argmax(sizes))
-    height, width = filled.shape
-    edges: set[tuple[tuple[int, int], tuple[int, int]]] = set()
-    outgoing: dict[tuple[int, int], list[tuple[int, int]]] = {}
-
-    def add_edge(start: tuple[int, int], end: tuple[int, int]) -> None:
-        edges.add((start, end))
-        outgoing.setdefault(start, []).append(end)
-
-    for y, x in zip(*np.nonzero(filled)):
-        x = int(x)
-        y = int(y)
-        if y == 0 or not filled[y - 1, x]:
-            add_edge((x, y), (x + 1, y))
-        if x == width - 1 or not filled[y, x + 1]:
-            add_edge((x + 1, y), (x + 1, y + 1))
-        if y == height - 1 or not filled[y + 1, x]:
-            add_edge((x + 1, y + 1), (x, y + 1))
-        if x == 0 or not filled[y, x - 1]:
-            add_edge((x, y + 1), (x, y))
-
-    remaining = edges.copy()
-    loops: list[list[tuple[int, int]]] = []
-    direction_index = {(1, 0): 0, (0, 1): 1, (-1, 0): 2, (0, -1): 3}
-    turn_priority = {1: 0, 0: 1, 3: 2, 2: 3}
-    while remaining:
-        start, current = next(iter(remaining))
-        loop = [start]
-        for _ in range(len(edges) + 1):
-            incoming = (current[0] - loop[-1][0], current[1] - loop[-1][1])
-            previous_direction = direction_index[incoming]
-            remaining.discard((loop[-1], current))
-            if current == loop[0]:
-                break
-            loop.append(current)
-            choices = [point for point in outgoing.get(current, ()) if (current, point) in remaining]
-            if not choices:
-                break
-            current_direction = previous_direction
-            current = min(
-                choices,
-                key=lambda point: turn_priority[
-                    (direction_index[(point[0] - current[0], point[1] - current[1])] - current_direction) % 4
-                ],
-            )
-        if len(loop) >= 3 and current == loop[0]:
-            loops.append(loop)
-
-    if not loops:
-        return []
-    return max(loops, key=lambda points: abs(polygon_area(points)))
-
-
 def polygon_area(points: list[tuple[float, float]]) -> float:
     return sum(
         points[index][0] * points[(index + 1) % len(points)][1]
@@ -136,76 +75,66 @@ def polygon_area(points: list[tuple[float, float]]) -> float:
     ) / 2.0
 
 
-def simplify_open_path(points: list[tuple[int, int]], tolerance: float) -> list[tuple[int, int]]:
-    if len(points) <= 2:
-        return points
-    tolerance_squared = tolerance * tolerance
-    keep = [False] * len(points)
-    keep[0] = keep[-1] = True
-    segments = [(0, len(points) - 1)]
-    while segments:
-        start, end = segments.pop()
-        x1, y1 = points[start]
-        x2, y2 = points[end]
-        dx = x2 - x1
-        dy = y2 - y1
-        length_squared = dx * dx + dy * dy
-        farthest = -1
-        farthest_distance = tolerance_squared
-        for index in range(start + 1, end):
-            px, py = points[index]
-            if length_squared:
-                projection = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length_squared))
-                nearest_x = x1 + projection * dx
-                nearest_y = y1 + projection * dy
-            else:
-                nearest_x, nearest_y = x1, y1
-            distance = (px - nearest_x) ** 2 + (py - nearest_y) ** 2
-            if distance > farthest_distance:
-                farthest = index
-                farthest_distance = distance
-        if farthest >= 0:
-            keep[farthest] = True
-            segments.append((start, farthest))
-            segments.append((farthest, end))
-    return [point for index, point in enumerate(points) if keep[index]]
-
-
-def simplify_closed_contour(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    if len(points) <= 3:
-        return points
-    split = max(
-        range(1, len(points)),
-        key=lambda index: (points[index][0] - points[0][0]) ** 2 + (points[index][1] - points[0][1]) ** 2,
-    )
-    first = simplify_open_path(points[: split + 1], COLLISION_POLYGON_TOLERANCE)
-    second = simplify_open_path(points[split:] + [points[0]], COLLISION_POLYGON_TOLERANCE)
-    result = first[:-1] + second[:-1]
-    tolerance = COLLISION_POLYGON_TOLERANCE
-    while len(result) > COLLISION_POLYGON_MAX_POINTS:
-        tolerance *= 1.25
-        first = simplify_open_path(points[: split + 1], tolerance)
-        second = simplify_open_path(points[split:] + [points[0]], tolerance)
-        result = first[:-1] + second[:-1]
-        if tolerance > 8:
-            stride = len(points) / COLLISION_POLYGON_MAX_POINTS
-            result = [points[int(index * stride)] for index in range(COLLISION_POLYGON_MAX_POINTS)]
-            break
-    if len(result) < 3:
-        result = [
-            points[int(index * len(points) / COLLISION_POLYGON_MAX_POINTS)]
-            for index in range(min(COLLISION_POLYGON_MAX_POINTS, len(points)))
-        ]
-    return result
-
-
 def collision_polygon(binary_mask: np.ndarray) -> list[list[float]]:
-    contour = trace_outer_contour(binary_mask)
-    if len(contour) < 3:
+    """Build a low-vertex polygon that fully contains every visible mask pixel."""
+    y_coords, x_coords = np.nonzero(binary_mask)
+    if len(x_coords) < 3:
         raise RuntimeError("Could not extract a polygon collision contour")
-    points = simplify_closed_contour(contour)
+    points = np.column_stack((x_coords, y_coords)).astype(np.float64)
+    hull = ConvexHull(points)
+    hull_points = points[hull.vertices]
+    edges = np.roll(hull_points, -1, axis=0) - hull_points
+    normals = np.column_stack((-edges[:, 1], edges[:, 0]))
+    normals /= np.linalg.norm(normals, axis=1)[:, None]
+
+    # Support each foreground pixel as a square, not a point. The extra half
+    # pixel covers raster rounding after the normalized points are serialized.
+    support = np.max(points @ normals.T, axis=0)
+    support += 0.5 * (np.abs(normals[:, 0]) + np.abs(normals[:, 1])) + 0.5
+    planes = [(normal, float(distance)) for normal, distance in zip(normals, support)]
+
+    def intersections(active_planes: list[tuple[np.ndarray, float]]) -> list[tuple[float, float]] | None:
+        vertices: list[tuple[float, float]] = []
+        for index, (normal_a, distance_a) in enumerate(active_planes):
+            normal_b, distance_b = active_planes[(index + 1) % len(active_planes)]
+            matrix = np.stack((normal_a, normal_b))
+            if abs(float(np.linalg.det(matrix))) < 1e-9:
+                return None
+            vertex = np.linalg.solve(matrix, np.array([distance_a, distance_b]))
+            if any(float(np.dot(normal, vertex)) > distance + 1e-7 for normal, distance in active_planes):
+                return None
+            vertices.append((float(vertex[0]), float(vertex[1])))
+        return vertices if len(vertices) >= 3 else None
+
+    polygon = intersections(planes)
+    if polygon is None:
+        raise RuntimeError("Could not construct a containing collision polygon")
+
+    # Remove the least influential support edge at each step. Unlike sampling
+    # contour points, every reduced polygon still encloses the full alpha mask.
+    while len(planes) > COLLISION_POLYGON_MAX_POINTS:
+        current_area = abs(polygon_area(polygon))
+        removal_costs: list[float] = []
+        for index in range(len(planes)):
+            candidate = intersections(planes[:index] + planes[index + 1 :])
+            removal_costs.append(
+                float("inf") if candidate is None else abs(polygon_area(candidate)) - current_area
+            )
+        remove_index = int(np.argmin(removal_costs))
+        planes.pop(remove_index)
+        polygon = intersections(planes)
+        if polygon is None:
+            raise RuntimeError("Could not simplify the containing collision polygon")
+
+    # A final containment guard protects future edits to the simplifier.
+    if any(
+        np.any(points @ normal > distance + 1e-6)
+        for normal, distance in planes
+    ):
+        raise RuntimeError("Collision polygon does not contain the alpha mask")
+
     size = binary_mask.shape[0]
-    return [[round(x / size, 5), round(y / size, 5)] for x, y in points]
+    return [[round(x / size, 5), round(y / size, 5)] for x, y in polygon]
 
 
 def process(path: Path) -> dict[str, object]:
@@ -306,7 +235,7 @@ def process(path: Path) -> dict[str, object]:
                 "height": round(box_height / OUTPUT_SIZE, 5),
             },
             "vertexCount": len(polygon),
-            "note": "Irregular silhouette collider follows the alpha boundary with a simplified 32-vertex maximum polygon.",
+            "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin.",
         },
         "removedBackgroundPercent": round(float(background.mean() * 100.0), 2),
     }
@@ -328,7 +257,6 @@ def main() -> None:
             "outputFolder": "Assets/processed",
             "alphaBoundsThreshold": ALPHA_BOUNDS_THRESHOLD,
             "collisionPolygonMaxPoints": COLLISION_POLYGON_MAX_POINTS,
-            "collisionPolygonTolerance": COLLISION_POLYGON_TOLERANCE,
             "collisionAlphaThreshold": COLLISION_ALPHA_THRESHOLD,
         },
         "assets": entries,
@@ -351,3 +279,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
