@@ -103,7 +103,7 @@
   function metricsFor(level) {
     const stage = stages[level];
     const bounds = stage.collision.bounds;
-    const diameter = BASE_SIZE * Math.pow(SIZE_GROWTH, level);
+    const diameter = BASE_SIZE * 0.75 * Math.pow(SIZE_GROWTH, level);
     const widestFraction = Math.max(bounds.width, bounds.height);
     const imageSize = diameter / widestFraction;
     return {
