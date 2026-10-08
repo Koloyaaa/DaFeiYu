@@ -16,7 +16,7 @@
   const SIZE_GROWTH = 1.21;
   const MAX_ANGULAR_SPEED = 0.72;
   const COLLISION_REFERENCE_SIZE = 128;
-  const STARTER_WEIGHTS = [40, 25, 16, 11, 8];
+  const STARTER_WEIGHTS = [35, 24, 16, 11, 8, 6];
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
