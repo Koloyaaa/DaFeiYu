@@ -17,6 +17,11 @@
   const MAX_ANGULAR_SPEED = 0.72;
   const COLLISION_REFERENCE_SIZE = 128;
   const STARTER_WEIGHTS = [35, 24, 16, 11, 8, 6];
+  const SLEEP_LINEAR_SPEED = 18;
+  const SLEEP_ANGULAR_SPEED = 0.08;
+  const SLEEP_DELAY = 0.45;
+  const MIN_BOUNCE_SPEED = 90;
+  const CONTACT_FRICTION = 0.3;
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
@@ -148,6 +153,8 @@
       imageX: metrics.imageX,
       imageY: metrics.imageY,
       squash: 0,
+      sleepTimer: 0,
+      sleeping: false,
       dangerTime: 0,
       enteredBoard: alreadyEnteredBoard,
       mergeLock,
@@ -311,6 +318,7 @@
   function integratePiece(piece, dt) {
     piece.mergeLock = Math.max(0, piece.mergeLock - dt);
     piece.squash *= Math.exp(-dt * 7);
+    if (piece.sleeping) return;
     piece.angularVelocity *= Math.pow(0.92, dt * 60);
     if (Math.abs(piece.angularVelocity) < 0.01) piece.angularVelocity = 0;
     const nextAngle = piece.angle + piece.angularVelocity * dt;
@@ -368,11 +376,16 @@
           merged = true;
           break;
         }
+        if (a.sleeping && b.sleeping) continue;
+        if (a.sleeping) wakePiece(a);
+        if (b.sleeping) wakePiece(b);
         if (isPendingDropLanding(a, b)) setPendingDrop(null);
         resolveBounce(a, b);
       }
       if (merged || gameOver) break;
     }
+
+    for (const piece of pieces) updateSleepState(piece, dt);
 
     for (const piece of pieces) {
       const bounds = pieceSilhouetteAabb(piece);
@@ -423,6 +436,23 @@
     if (!dropped) return false;
     const support = dropped === a ? b : a;
     return dropped.y < support.y && dropped.vy >= support.vy - 12;
+  }
+
+  function wakePiece(piece) {
+    piece.sleeping = false;
+    piece.sleepTimer = 0;
+  }
+
+  function updateSleepState(piece, dt) {
+    if (piece.sleeping) return;
+    const slowEnough = Math.hypot(piece.vx, piece.vy) <= SLEEP_LINEAR_SPEED &&
+      Math.abs(piece.angularVelocity) <= SLEEP_ANGULAR_SPEED;
+    piece.sleepTimer = slowEnough ? piece.sleepTimer + dt : 0;
+    if (piece.sleepTimer < SLEEP_DELAY) return;
+    piece.vx = 0;
+    piece.vy = 0;
+    piece.angularVelocity = 0;
+    piece.sleeping = true;
   }
 
   function pieceGeometry(piece) {
@@ -535,8 +565,9 @@
     let nx = 0;
     let ny = 0;
     if (Math.hypot(dx, dy) < 0.001) {
-      if (overlapX < overlapY) nx = Math.random() < 0.5 ? -1 : 1;
-      else ny = -1;
+      const direction = a.id < b.id ? -1 : 1;
+      if (overlapX < overlapY) nx = direction;
+      else ny = direction;
     } else {
       const distance = Math.hypot(dx, dy);
       nx = dx / distance;
@@ -569,12 +600,22 @@
 
     const relativeVelocity = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
     if (relativeVelocity < 0) {
-      const restitution = 0.32;
+      const restitution = -relativeVelocity < MIN_BOUNCE_SPEED ? 0 : 0.16;
       const impulse = -(1 + restitution) * relativeVelocity / inverseTotal;
+      const tangentVelocityX = (b.vx - a.vx) - relativeVelocity * nx;
+      const tangentVelocityY = (b.vy - a.vy) - relativeVelocity * ny;
+      const tangentSpeed = Math.hypot(tangentVelocityX, tangentVelocityY);
+      const tangentX = tangentSpeed > 0.001 ? tangentVelocityX / tangentSpeed : 0;
+      const tangentY = tangentSpeed > 0.001 ? tangentVelocityY / tangentSpeed : 0;
+      const frictionImpulse = clamp(-tangentSpeed / inverseTotal, -impulse * CONTACT_FRICTION, impulse * CONTACT_FRICTION);
       a.vx -= impulse * invMassA * nx;
       a.vy -= impulse * invMassA * ny;
       b.vx += impulse * invMassB * nx;
       b.vy += impulse * invMassB * ny;
+      a.vx -= frictionImpulse * invMassA * tangentX;
+      a.vy -= frictionImpulse * invMassA * tangentY;
+      b.vx += frictionImpulse * invMassB * tangentX;
+      b.vy += frictionImpulse * invMassB * tangentY;
       if (relativeVelocity < -70) {
         const contactX = (Math.max(boundsA.left, boundsB.left) + Math.min(boundsA.right, boundsB.right)) / 2;
         const contactY = (Math.max(boundsA.top, boundsB.top) + Math.min(boundsA.bottom, boundsB.bottom)) / 2;
