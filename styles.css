@@ -293,3 +293,6 @@ button:focus-visible { outline: 2px solid #b9776a; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+.author-handle { color: inherit; text-decoration-color: #c8c8c3; text-underline-offset: 3px; }
+.author-handle:hover, .author-handle:focus-visible { color: var(--accent); }
