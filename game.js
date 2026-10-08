@@ -23,6 +23,7 @@
   const SLEEP_DELAY = 0.45;
   const MIN_BOUNCE_SPEED = 90;
   const CONTACT_FRICTION = 0.3;
+  const COLLISION_SLOP = 2; // Allow a tiny overlap so crowded stacks can pack more tightly.
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
@@ -111,8 +112,8 @@
   function updateAssetProgress(completed, failedCount) {
     const percent = Math.round((completed / stages.length) * 100);
     assetProgress.style.width = `${percent}%`;
-    assetProgress.parentElement.setAttribute("aria-valuenow", String(completed));
-    assetLoadingCount.textContent = `${completed} / ${stages.length}`;
+    assetProgress.parentElement.setAttribute("aria-valuenow", String(percent));
+    assetLoadingCount.textContent = `${percent}%`;
     assetLoadingTitle.textContent = failedCount ? "有素材没有加载成功" : "正在加载角色素材";
   }
 
@@ -640,13 +641,13 @@
     const ny = contact.ny;
     const boundsA = pieceAabb(a);
     const boundsB = pieceAabb(b);
-    const depth = contact.depth;
+    const depth = contact.depth - COLLISION_SLOP;
     if (!Number.isFinite(depth) || depth <= 0) return;
 
     const invMassA = 1 / (a.w * a.h);
     const invMassB = 1 / (b.w * b.h);
     const inverseTotal = invMassA + invMassB;
-    const correction = depth * 0.9;
+    const correction = depth * 0.82;
     a.x -= nx * correction * (invMassA / inverseTotal);
     a.y -= ny * correction * (invMassA / inverseTotal);
     b.x += nx * correction * (invMassB / inverseTotal);

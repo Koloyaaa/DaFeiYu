@@ -2,8 +2,8 @@
 
 The source drawings all use a near-white, almost neutral background.  This
 script flood-fills only those near-white pixels connected to the image edge,
-preserving white details enclosed by the illustration, then writes padded RGBA
-PNGs and simplified alpha-derived polygon hitboxes for the browser game.
+preserving white details enclosed by the illustration, then writes padded
+lossless WebP images and simplified alpha-derived polygon hitboxes.
 
 Requirements: Pillow, NumPy, SciPy (ndimage).
 """
@@ -202,12 +202,12 @@ def process(path: Path) -> dict[str, object]:
     collision_mask = np.asarray(mask_image) >= COLLISION_ALPHA_THRESHOLD
     polygon = collision_polygon(collision_mask)
 
-    output_path = OUTPUT_DIR / path.name
-    output.save(output_path, optimize=True)
+    output_path = OUTPUT_DIR / f"{path.stem}.webp"
+    output.save(output_path, format="WEBP", lossless=True, method=6, exact=True)
 
     return {
         "id": path.stem,
-        "src": f"Assets/processed/{path.name}",
+        "src": f"Assets/processed/{path.stem}.webp",
         "sourceSize": {"width": image.width, "height": image.height},
         "sourceForegroundBounds": {
             "x": left,
@@ -255,6 +255,7 @@ def main() -> None:
             "method": "edge-connected near-white flood fill with a soft alpha fringe",
             "sourceFolder": "Assets/images",
             "outputFolder": "Assets/processed",
+            "imageFormat": "WebP lossless",
             "alphaBoundsThreshold": ALPHA_BOUNDS_THRESHOLD,
             "collisionPolygonMaxPoints": COLLISION_POLYGON_MAX_POINTS,
             "collisionAlphaThreshold": COLLISION_ALPHA_THRESHOLD,
@@ -279,4 +280,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

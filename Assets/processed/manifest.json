@@ -17,6 +17,7 @@
     "method": "edge-connected near-white flood fill with a soft alpha fringe",
     "sourceFolder": "Assets/images",
     "outputFolder": "Assets/processed",
+    "imageFormat": "WebP lossless",
     "alphaBoundsThreshold": 24,
     "collisionPolygonMaxPoints": 20,
     "collisionAlphaThreshold": 24
@@ -24,7 +25,7 @@
   "assets": [
     {
       "id": "ChatGPT",
-      "src": "Assets/processed/ChatGPT.png",
+      "src": "Assets/processed/ChatGPT.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -145,7 +146,7 @@
     },
     {
       "id": "Claude",
-      "src": "Assets/processed/Claude.png",
+      "src": "Assets/processed/Claude.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -266,7 +267,7 @@
     },
     {
       "id": "DeepSeek",
-      "src": "Assets/processed/DeepSeek.png",
+      "src": "Assets/processed/DeepSeek.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -387,7 +388,7 @@
     },
     {
       "id": "Gemini",
-      "src": "Assets/processed/Gemini.png",
+      "src": "Assets/processed/Gemini.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -508,7 +509,7 @@
     },
     {
       "id": "GLM",
-      "src": "Assets/processed/GLM.png",
+      "src": "Assets/processed/GLM.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -629,7 +630,7 @@
     },
     {
       "id": "Grok",
-      "src": "Assets/processed/Grok.png",
+      "src": "Assets/processed/Grok.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -750,7 +751,7 @@
     },
     {
       "id": "Kimi",
-      "src": "Assets/processed/Kimi.png",
+      "src": "Assets/processed/Kimi.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -871,7 +872,7 @@
     },
     {
       "id": "Mistral",
-      "src": "Assets/processed/Mistral.png",
+      "src": "Assets/processed/Mistral.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -992,7 +993,7 @@
     },
     {
       "id": "MuseSpark",
-      "src": "Assets/processed/MuseSpark.png",
+      "src": "Assets/processed/MuseSpark.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -1109,7 +1110,7 @@
     },
     {
       "id": "Qwen",
-      "src": "Assets/processed/Qwen.png",
+      "src": "Assets/processed/Qwen.webp",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -1230,7 +1231,7 @@
     },
     {
       "id": "豆包",
-      "src": "Assets/processed/豆包.png",
+      "src": "Assets/processed/豆包.webp",
       "sourceSize": {
         "width": 1335,
         "height": 1178
@@ -1351,4 +1352,3 @@
     }
   ]
 }
-
