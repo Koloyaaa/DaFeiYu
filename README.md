@@ -78,4 +78,4 @@ python scripts/preprocess_assets.py
 
 ## 许可证
 
-仓库目前未附 `LICENSE` 文件，暂未声明通用开源授权。请勿默认将代码或图片素材用于再发布、修改或商业用途。
+本项目按 MIT License 授权，详见 [LICENSE](LICENSE)。分发项目时，请保留版权声明与许可文本。
