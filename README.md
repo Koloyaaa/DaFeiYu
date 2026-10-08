@@ -1,25 +1,81 @@
 # 合成大肥鱼
 
-一个可离线运行的浏览器小游戏。打开 `index.html` 就能开始玩，不需要安装前端框架或启动服务。游戏里的角色都是 AI 娘；“大肥鱼”是 DeepSeek 的代称。
+一款无需安装依赖、可在浏览器中运行的合成小游戏。让十一位 AI 娘相遇、进化，最终解锁 DeepSeek（大肥鱼）。
 
-## 怎么玩
+[游戏仓库](https://github.com/Koloyaaa/DaFeiYu) · [反馈问题](https://github.com/Koloyaaa/DaFeiYu/issues)
 
-- 在游戏区域移动鼠标或手指，选择角色落下的位置；每次放下一位后，需等它碰到其他角色或池底才能继续放置。
-- 可以用键盘左右方向键移动，空格放下角色，`R` 重新开始。
-- 开局与后续待合成角色从豆包、Mistral、Gemini、MuseSpark、GLM 中按 40%、25%、16%、11%、8% 的概率抽取。
-- 角色会弹跳并互相挤动；只有碰撞时才会按撞击位置轻微转动，并很快减速停下。右侧预览会显示角色当前阶段的大小。
-- 两个同阶段的角色碰在一起时会合成进化。连续合成，目标是解锁 DeepSeek（大肥鱼）。
-- 角色越过上方结束线并稳定停留一小段时间，本局才会结束；落下、弹跳或合成时短暂越线不会误报。
-- 右侧图鉴按 豆包 → Mistral → Gemini → MuseSpark → GLM → Qwen → Kimi → Grok → Claude → ChatGPT → DeepSeek 排列。
+## 游戏截图
 
-## 图片与碰撞范围
+<p align="center">
+  <img src="docs/gameplay-screenshot.png" alt="合成大肥鱼游戏画面" width="960">
+</p>
 
-- `Assets/images/` 保存原图，游戏使用 `Assets/processed/` 中的透明 PNG。
-- `Assets/processed/manifest.json` 记录透明像素边界和由人物轮廓简化得到的不规则多边形碰撞箱，每个角色最多 32 个顶点，边缘紧贴抠图轮廓。角色旋转时多边形也会同步旋转。
-- 游戏按多边形边缘求交，并用横向扫掠提前排除相距较远的角色；角色位置没变化时会复用已计算的轮廓，降低碰撞计算量。
-- 要重新处理原图，可运行 `python scripts/preprocess_assets.py`。处理脚本需要 Pillow、NumPy 和 SciPy。
+> 注：截图展示的是较早的触屏按钮界面；当前触屏操作已改为拖动选位后轻触棋盘确认。
 
-## GitHub Pages
+## 玩法
 
-- 游戏运行时只需要 HTML、CSS、JavaScript、处理后的 PNG 和清单文件。
-- Python 脚本只在本地重新抠图和生成碰撞多边形时使用；`Assets/processed/` 中的产物已经随项目保存，GitHub Pages 不需要运行 Python，也不需要安装这些 Python 依赖。
+将相同阶段的角色合成，逐步解锁下一位 AI 娘。角色会受重力、碰撞和摩擦影响弹跳与旋转；当角色在结束线以上稳定停留一段时间，本局结束。连续合成到最后一阶即可解锁 DeepSeek（大肥鱼）。
+
+新角色从前五阶中按概率抽取，概率由低阶到高阶递减：豆包 40%、Mistral 25%、Gemini 16%、MuseSpark 11%、GLM 8%。
+
+## 操作方式
+
+| 设备 | 操作 |
+| --- | --- |
+| 鼠标 | 移动选择位置，点击棋盘放下角色。 |
+| 触屏 | 先横向拖动至少 14px 选择位置，松手后轻触棋盘放置。短触只移动预览；确认时明显滑动也不会落子。 |
+| 键盘 | `←` / `→` 移动，`Space` 放置，`R` 重新开始。 |
+
+放下一位角色后，需等它碰到其他角色或池底，才能继续放置。两个相同阶段的角色相遇时会自动合成。
+
+## 进化顺序
+
+豆包 → Mistral → Gemini → MuseSpark → GLM → Qwen → Kimi → Grok → Claude → ChatGPT → DeepSeek
+
+只有 DeepSeek 是“大肥鱼”；它是 DeepSeek 的昵称。游戏里的其他角色均为 AI 娘。
+
+## 开始游戏
+
+无需构建或安装前端依赖。下载或克隆仓库后，在浏览器中打开 `index.html` 即可游玩；也可以将仓库部署到 GitHub Pages 等静态网站托管服务。
+
+```bash
+git clone https://github.com/Koloyaaa/DaFeiYu.git
+cd DaFeiYu
+```
+
+## 项目结构
+
+```text
+.
+├── Assets/
+│   ├── images/                 # 原始角色图片
+│   └── processed/             # 去背景图片、碰撞多边形清单
+├── docs/
+│   └── gameplay-screenshot.png
+├── scripts/
+│   └── preprocess_assets.py   # 图片预处理与碰撞轮廓生成
+├── game.js                    # 游戏逻辑与物理模拟
+├── index.html
+└── styles.css
+```
+
+## 图片与碰撞轮廓
+
+游戏使用 `Assets/processed/` 中已去除背景的 PNG。`manifest.json` 和 `manifest.js` 保存每个角色的不规则多边形碰撞轮廓；运行游戏不需要 Python。
+
+如需从原图重新生成处理素材，可运行：
+
+```bash
+python -m pip install Pillow numpy scipy
+python scripts/preprocess_assets.py
+```
+
+预处理脚本需要 Pillow、NumPy 和 SciPy。该步骤只用于生成素材，不参与游戏运行或 GitHub Pages 部署。
+
+## 致谢
+
+作者：DornGames @LéoWEE · [Koloyaaa on GitHub](https://github.com/Koloyaaa)
+
+## 许可证
+
+仓库目前未附 `LICENSE` 文件，暂未声明通用开源授权。请勿默认将代码或图片素材用于再发布、修改或商业用途。
