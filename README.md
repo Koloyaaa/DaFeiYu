@@ -1,5 +1,7 @@
 # 合成大肥鱼
 
+> **[🎮 在线体验：开始游戏](https://koloyaaa.github.io/DaFeiYu/)** · 无需下载，打开即玩
+
 一款无需安装依赖、可在浏览器中运行的合成小游戏。让十一位 AI 娘相遇、进化，最终解锁 DeepSeek（大肥鱼）。
 
 [游戏仓库](https://github.com/Koloyaaa/DaFeiYu) · [反馈问题](https://github.com/Koloyaaa/DaFeiYu/issues)
@@ -36,7 +38,7 @@
 
 ## 开始游戏
 
-无需构建或安装前端依赖。下载或克隆仓库后，在浏览器中打开 `index.html` 即可游玩；也可以将仓库部署到 GitHub Pages 等静态网站托管服务。
+现在就可以在 [GitHub Pages 在线体验](https://koloyaaa.github.io/DaFeiYu/)。无需构建或安装前端依赖；下载或克隆仓库后，也可以在浏览器中打开 `index.html` 游玩。
 
 ```bash
 git clone https://github.com/Koloyaaa/DaFeiYu.git
