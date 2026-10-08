@@ -207,7 +207,7 @@ def process(path: Path) -> dict[str, object]:
 
     return {
         "id": path.stem,
-        "src": f"Assets/processed/{path.stem}.webp",
+        "src": f"Assets/processed/{path.stem}.webp?v=2",
         "sourceSize": {"width": image.width, "height": image.height},
         "sourceForegroundBounds": {
             "x": left,

@@ -25,7 +25,7 @@
   "assets": [
     {
       "id": "ChatGPT",
-      "src": "Assets/processed/ChatGPT.webp",
+      "src": "Assets/processed/ChatGPT.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -146,7 +146,7 @@
     },
     {
       "id": "Claude",
-      "src": "Assets/processed/Claude.webp",
+      "src": "Assets/processed/Claude.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -267,7 +267,7 @@
     },
     {
       "id": "DeepSeek",
-      "src": "Assets/processed/DeepSeek.webp",
+      "src": "Assets/processed/DeepSeek.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -388,7 +388,7 @@
     },
     {
       "id": "Gemini",
-      "src": "Assets/processed/Gemini.webp",
+      "src": "Assets/processed/Gemini.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -509,7 +509,7 @@
     },
     {
       "id": "GLM",
-      "src": "Assets/processed/GLM.webp",
+      "src": "Assets/processed/GLM.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -630,7 +630,7 @@
     },
     {
       "id": "Grok",
-      "src": "Assets/processed/Grok.webp",
+      "src": "Assets/processed/Grok.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -751,7 +751,7 @@
     },
     {
       "id": "Kimi",
-      "src": "Assets/processed/Kimi.webp",
+      "src": "Assets/processed/Kimi.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -872,7 +872,7 @@
     },
     {
       "id": "Mistral",
-      "src": "Assets/processed/Mistral.webp",
+      "src": "Assets/processed/Mistral.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -993,7 +993,7 @@
     },
     {
       "id": "MuseSpark",
-      "src": "Assets/processed/MuseSpark.webp",
+      "src": "Assets/processed/MuseSpark.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -1110,7 +1110,7 @@
     },
     {
       "id": "Qwen",
-      "src": "Assets/processed/Qwen.webp",
+      "src": "Assets/processed/Qwen.webp?v=2",
       "sourceSize": {
         "width": 1254,
         "height": 1254
@@ -1231,7 +1231,7 @@
     },
     {
       "id": "豆包",
-      "src": "Assets/processed/豆包.webp",
+      "src": "Assets/processed/豆包.webp?v=2",
       "sourceSize": {
         "width": 1335,
         "height": 1178
