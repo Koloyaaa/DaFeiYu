@@ -14,8 +14,9 @@
   const GRAVITY = 1450;
   const BASE_SIZE = 45;
   const SIZE_GROWTH = 1.21;
+  const PHYSICS_SUBSTEPS = 3;
+  const POSITION_ITERATIONS = 4;
   const MAX_ANGULAR_SPEED = 0.72;
-  const COLLISION_REFERENCE_SIZE = 128;
   const STARTER_WEIGHTS = [35, 24, 16, 11, 8, 6];
   const SLEEP_LINEAR_SPEED = 18;
   const SLEEP_ANGULAR_SPEED = 0.08;
@@ -28,10 +29,9 @@
   const stages = stageOrder.map((id, index) => {
     const asset = rawAssets.get(id);
     const image = new Image();
-    image.src = asset.src;
     image.addEventListener("load", () => draw());
     const polygon = Float32Array.from(asset.collision.polygon.flat());
-    return { ...asset, image, polygon, index };
+    return { ...asset, image, polygon, index, loadFailed: false };
   });
   const scoreNode = document.getElementById("score");
   const bestScoreNode = document.getElementById("best-score");
@@ -43,6 +43,12 @@
   const dialog = document.getElementById("game-over-dialog");
   const toast = document.getElementById("game-toast");
   const announcer = document.getElementById("announcer");
+  const assetLoader = document.getElementById("asset-loader");
+  const assetLoadingTitle = document.getElementById("asset-loading-title");
+  const assetLoadingMessage = document.getElementById("asset-loading-message");
+  const assetLoadingCount = document.getElementById("asset-loading-count");
+  const assetProgress = document.getElementById("asset-progress");
+  const assetRetryButton = document.getElementById("asset-retry");
   const resultCopy = document.getElementById("result-copy");
   const resultTitle = document.getElementById("result-title");
   const resultScore = document.getElementById("result-score");
@@ -81,6 +87,8 @@
   let nextPieceId = 1;
   let toastTimer = 0;
   let lastDropNotice = -Infinity;
+  let assetsReady = false;
+  let assetLoadRun = 0;
 
   function readNumber(key, fallback) {
     try {
@@ -98,6 +106,68 @@
       if (roll < 0) return level;
     }
     return STARTER_WEIGHTS.length - 1;
+  }
+
+  function updateAssetProgress(completed, failedCount) {
+    const percent = Math.round((completed / stages.length) * 100);
+    assetProgress.style.width = `${percent}%`;
+    assetProgress.parentElement.setAttribute("aria-valuenow", String(completed));
+    assetLoadingCount.textContent = `${completed} / ${stages.length}`;
+    assetLoadingTitle.textContent = failedCount ? "有素材没有加载成功" : "正在加载角色素材";
+  }
+
+  function loadStageAssets(retryFailedOnly = false) {
+    const run = ++assetLoadRun;
+    const targets = retryFailedOnly ? stages.filter((stage) => stage.loadFailed) : stages;
+    let completed = stages.length - targets.length;
+    const failed = [];
+    assetsReady = false;
+    assetLoader.hidden = false;
+    assetRetryButton.hidden = true;
+    assetLoadingMessage.textContent = retryFailedOnly
+      ? "正在重新加载未成功的图片…"
+      : "先把所有角色图片准备好，再开始游戏。";
+    updateAssetProgress(completed, 0);
+
+    const requests = targets.map((stage) => new Promise((resolve) => {
+      let settled = false;
+      const finish = (success) => {
+        if (settled) return;
+        settled = true;
+        stage.loadFailed = !success;
+        completed += 1;
+        if (!success) failed.push(stage.id);
+        updateAssetProgress(completed, failed.length);
+        resolve();
+      };
+      stage.image.addEventListener("load", () => finish(true), { once: true });
+      stage.image.addEventListener("error", () => finish(false), { once: true });
+      const source = retryFailedOnly
+        ? `${stage.src}${stage.src.includes("?") ? "&" : "?"}reload=${Date.now()}-${stage.index}`
+        : stage.src;
+      stage.image.src = source;
+      if (stage.image.complete) queueMicrotask(() => finish(stage.image.naturalWidth > 0));
+    }));
+
+    Promise.all(requests).then(() => {
+      if (run !== assetLoadRun) return;
+      if (failed.length) {
+        assetLoadingTitle.textContent = "有素材没有加载成功";
+        assetLoadingMessage.textContent = `加载失败：${failed.join("、")}。检查网络后可以重试。`;
+        assetRetryButton.hidden = false;
+        assetRetryButton.focus({ preventScroll: true });
+        return;
+      }
+      assetLoadingTitle.textContent = "素材准备好了";
+      assetLoadingMessage.textContent = "图片已全部加载，马上开始。";
+      window.setTimeout(() => {
+        if (run !== assetLoadRun) return;
+        assetLoader.hidden = true;
+        assetsReady = true;
+        lastFrame = 0;
+        draw();
+      }, 360);
+    });
   }
 
   function metricsFor(level) {
@@ -181,7 +251,7 @@
   }
 
   function dropCharacter() {
-    if (gameOver) return;
+    if (!assetsReady || gameOver) return;
     if (pendingDropId !== null) {
       if (simulationTime - lastDropNotice > 0.8) {
         showToast("等角色落到其他角色或池底，再放下一个");
@@ -278,6 +348,7 @@
   });
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("keydown", (event) => {
+    if (!assetsReady) return;
     const target = event.target;
     if (target instanceof HTMLButtonElement) return;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return;
@@ -357,30 +428,40 @@
       } else {
         piece.vy = 0;
       }
-      piece.vx *= 0.915;
+      piece.vx *= Math.pow(0.915, dt * 60);
     }
   }
 
   function update(dt) {
     simulationTime += dt;
-    for (const piece of pieces) integratePiece(piece, dt);
+    const substep = dt / PHYSICS_SUBSTEPS;
+    let merged = false;
 
-    for (let pass = 0; pass < 3; pass += 1) {
-      let merged = false;
-      for (const [a, b] of collisionCandidates()) {
-        if (!overlapPolygons(a, b)) continue;
+    for (let substepIndex = 0; substepIndex < PHYSICS_SUBSTEPS; substepIndex += 1) {
+      for (const piece of pieces) integratePiece(piece, substep);
 
-        if (a.level === b.level && a.mergeLock <= 0 && b.mergeLock <= 0 && simulationTime - a.bornAt > 0.05 && simulationTime - b.bornAt > 0.05) {
-          if (a.id === pendingDropId || b.id === pendingDropId) setPendingDrop(null);
-          mergeCharacters(a, b);
-          merged = true;
-          break;
+      // Re-project contacts several times per substep. Each pass removes the
+      // remaining overlap, which is the position-based part of the solver.
+      for (let iteration = 0; iteration < POSITION_ITERATIONS; iteration += 1) {
+        for (const [a, b] of collisionCandidates()) {
+          const contact = polygonPenetration(pieceGeometry(a).vertices, pieceGeometry(b).vertices, a.id, b.id);
+          if (!contact) continue;
+
+          if (a.level === b.level && a.mergeLock <= 0 && b.mergeLock <= 0 && simulationTime - a.bornAt > 0.05 && simulationTime - b.bornAt > 0.05) {
+            if (a.id === pendingDropId || b.id === pendingDropId) setPendingDrop(null);
+            mergeCharacters(a, b);
+            merged = true;
+            break;
+          }
+          if (a.sleeping && b.sleeping) continue;
+          if (a.sleeping) wakePiece(a);
+          if (b.sleeping) wakePiece(b);
+          if (isPendingDropLanding(a, b)) setPendingDrop(null);
+          resolveBounce(a, b, contact, iteration === 0);
         }
-        if (a.sleeping && b.sleeping) continue;
-        if (a.sleeping) wakePiece(a);
-        if (b.sleeping) wakePiece(b);
-        if (isPendingDropLanding(a, b)) setPendingDrop(null);
-        resolveBounce(a, b);
+
+        for (const piece of pieces) clampPieceToBin(piece);
+        if (merged || gameOver) break;
       }
       if (merged || gameOver) break;
     }
@@ -488,118 +569,91 @@
     return geometry;
   }
 
-  function polygonsOverlap(verticesA, verticesB) {
+  function polygonPenetration(verticesA, verticesB, idA, idB) {
     const countA = verticesA.length / 2;
     const countB = verticesB.length / 2;
-    for (let indexA = 0; indexA < countA; indexA += 1) {
-      const nextA = (indexA + 1) % countA;
-      const ax1 = verticesA[indexA * 2];
-      const ay1 = verticesA[indexA * 2 + 1];
-      const ax2 = verticesA[nextA * 2];
-      const ay2 = verticesA[nextA * 2 + 1];
-      for (let indexB = 0; indexB < countB; indexB += 1) {
-        const nextB = (indexB + 1) % countB;
-        if (segmentsIntersect(
-          ax1, ay1, ax2, ay2,
-          verticesB[indexB * 2], verticesB[indexB * 2 + 1],
-          verticesB[nextB * 2], verticesB[nextB * 2 + 1],
-        )) return true;
+    let centerAx = 0;
+    let centerAy = 0;
+    let centerBx = 0;
+    let centerBy = 0;
+    for (let index = 0; index < countA; index += 1) {
+      centerAx += verticesA[index * 2];
+      centerAy += verticesA[index * 2 + 1];
+    }
+    for (let index = 0; index < countB; index += 1) {
+      centerBx += verticesB[index * 2];
+      centerBy += verticesB[index * 2 + 1];
+    }
+    centerAx /= countA;
+    centerAy /= countA;
+    centerBx /= countB;
+    centerBy /= countB;
+    let minimumOverlap = Infinity;
+    let normalX = 0;
+    let normalY = 0;
+
+    for (const vertices of [verticesA, verticesB]) {
+      const count = vertices.length / 2;
+      for (let index = 0; index < count; index += 1) {
+        const next = (index + 1) % count;
+        const edgeX = vertices[next * 2] - vertices[index * 2];
+        const edgeY = vertices[next * 2 + 1] - vertices[index * 2 + 1];
+        const edgeLength = Math.hypot(edgeX, edgeY);
+        if (edgeLength < 1e-5) continue;
+        let axisX = -edgeY / edgeLength;
+        let axisY = edgeX / edgeLength;
+        let minA = Infinity;
+        let maxA = -Infinity;
+        let minB = Infinity;
+        let maxB = -Infinity;
+        for (let vertex = 0; vertex < countA; vertex += 1) {
+          const projection = verticesA[vertex * 2] * axisX + verticesA[vertex * 2 + 1] * axisY;
+          minA = Math.min(minA, projection);
+          maxA = Math.max(maxA, projection);
+        }
+        for (let vertex = 0; vertex < countB; vertex += 1) {
+          const projection = verticesB[vertex * 2] * axisX + verticesB[vertex * 2 + 1] * axisY;
+          minB = Math.min(minB, projection);
+          maxB = Math.max(maxB, projection);
+        }
+        const overlap = Math.min(maxA, maxB) - Math.max(minA, minB);
+        if (overlap < -0.001) return null;
+        if (overlap < minimumOverlap) {
+          const direction = (centerBx - centerAx) * axisX + (centerBy - centerAy) * axisY;
+          if (direction < -1e-5 || (Math.abs(direction) <= 1e-5 && idA > idB)) {
+            axisX = -axisX;
+            axisY = -axisY;
+          }
+          minimumOverlap = Math.max(0, overlap);
+          normalX = axisX;
+          normalY = axisY;
+        }
       }
     }
-    return pointInPolygon(verticesA[0], verticesA[1], verticesB) ||
-      pointInPolygon(verticesB[0], verticesB[1], verticesA);
+    return Number.isFinite(minimumOverlap)
+      ? { nx: normalX, ny: normalY, depth: minimumOverlap }
+      : null;
   }
 
-  function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
-    if (Math.max(ax, bx) < Math.min(cx, dx) - 0.001 || Math.max(cx, dx) < Math.min(ax, bx) - 0.001 ||
-        Math.max(ay, by) < Math.min(cy, dy) - 0.001 || Math.max(cy, dy) < Math.min(ay, by) - 0.001) return false;
-    const abC = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-    const abD = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
-    const cdA = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
-    const cdB = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
-    const epsilon = 0.001;
-    if (((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon)) &&
-        ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))) return true;
-    return (Math.abs(abC) <= epsilon && pointOnSegment(cx, cy, ax, ay, bx, by)) ||
-      (Math.abs(abD) <= epsilon && pointOnSegment(dx, dy, ax, ay, bx, by)) ||
-      (Math.abs(cdA) <= epsilon && pointOnSegment(ax, ay, cx, cy, dx, dy)) ||
-      (Math.abs(cdB) <= epsilon && pointOnSegment(bx, by, cx, cy, dx, dy));
-  }
-
-  function pointOnSegment(px, py, ax, ay, bx, by) {
-    return px >= Math.min(ax, bx) - 0.001 && px <= Math.max(ax, bx) + 0.001 &&
-      py >= Math.min(ay, by) - 0.001 && py <= Math.max(ay, by) + 0.001;
-  }
-
-  function pointInPolygon(x, y, vertices) {
-    let inside = false;
-    const count = vertices.length / 2;
-    for (let index = 0, previous = count - 1; index < count; previous = index, index += 1) {
-      const x1 = vertices[previous * 2];
-      const y1 = vertices[previous * 2 + 1];
-      const x2 = vertices[index * 2];
-      const y2 = vertices[index * 2 + 1];
-      const cross = (x - x1) * (y2 - y1) - (y - y1) * (x2 - x1);
-      if (Math.abs(cross) <= 0.001 && pointOnSegment(x, y, x1, y1, x2, y2)) return true;
-      if ((y1 > y) !== (y2 > y) && x < ((x2 - x1) * (y - y1)) / (y2 - y1) + x1) inside = !inside;
-    }
-    return inside;
-  }
-
-  function overlapPolygons(a, b) {
-    const geometryA = pieceGeometry(a);
-    const geometryB = pieceGeometry(b);
-    const boundsA = geometryA.bounds;
-    const boundsB = geometryB.bounds;
-    if (boundsA.right <= boundsB.left || boundsB.right <= boundsA.left || boundsA.bottom <= boundsB.top || boundsB.bottom <= boundsA.top) return false;
-    return polygonsOverlap(geometryA.vertices, geometryB.vertices);
-  }
-
-  function resolveBounce(a, b) {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
+  function resolveBounce(a, b, contact, applyImpulse = true) {
+    const nx = contact.nx;
+    const ny = contact.ny;
     const boundsA = pieceAabb(a);
     const boundsB = pieceAabb(b);
-    const overlapX = Math.min(boundsA.right, boundsB.right) - Math.max(boundsA.left, boundsB.left);
-    const overlapY = Math.min(boundsA.bottom, boundsB.bottom) - Math.max(boundsA.top, boundsB.top);
-    let nx = 0;
-    let ny = 0;
-    if (Math.hypot(dx, dy) < 0.001) {
-      const direction = a.id < b.id ? -1 : 1;
-      if (overlapX < overlapY) nx = direction;
-      else ny = direction;
-    } else {
-      const distance = Math.hypot(dx, dy);
-      nx = dx / distance;
-      ny = dy / distance;
-    }
-
-    const exitX = Math.abs(nx) > 0.001 ? overlapX / Math.abs(nx) : Infinity;
-    const exitY = Math.abs(ny) > 0.001 ? overlapY / Math.abs(ny) : Infinity;
-    let low = 0;
-    let high = Math.min(exitX, exitY);
-    const movedB = { ...b };
-    for (let attempt = 0; attempt < 9; attempt += 1) {
-      const middle = (low + high) / 2;
-      movedB.x = b.x + nx * middle;
-      movedB.y = b.y + ny * middle;
-      if (overlapPolygons(a, movedB)) low = middle;
-      else high = middle;
-    }
-    const depth = high + Math.min(a.w, a.h, b.w, b.h) / COLLISION_REFERENCE_SIZE * 0.55;
+    const depth = contact.depth;
     if (!Number.isFinite(depth) || depth <= 0) return;
 
     const invMassA = 1 / (a.w * a.h);
     const invMassB = 1 / (b.w * b.h);
     const inverseTotal = invMassA + invMassB;
-    const correction = depth * 0.82;
+    const correction = depth * 0.9;
     a.x -= nx * correction * (invMassA / inverseTotal);
     a.y -= ny * correction * (invMassA / inverseTotal);
     b.x += nx * correction * (invMassB / inverseTotal);
     b.y += ny * correction * (invMassB / inverseTotal);
 
     const relativeVelocity = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-    if (relativeVelocity < 0) {
+    if (applyImpulse && relativeVelocity < 0) {
       const restitution = -relativeVelocity < MIN_BOUNCE_SPEED ? 0 : 0.16;
       const impulse = -(1 + restitution) * relativeVelocity / inverseTotal;
       const tangentVelocityX = (b.vx - a.vx) - relativeVelocity * nx;
@@ -850,6 +904,11 @@
   }
 
   function frame(timestamp) {
+    if (!assetsReady) {
+      lastFrame = timestamp;
+      requestAnimationFrame(frame);
+      return;
+    }
     const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.032) : 0;
     lastFrame = timestamp;
     if (!gameOver && dt > 0) update(dt);
@@ -860,5 +919,7 @@
   updateInterface();
   updateTouchInstructions();
   resizeCanvas();
+  assetRetryButton.addEventListener("click", () => loadStageAssets(true));
+  loadStageAssets();
   requestAnimationFrame(frame);
 })();
