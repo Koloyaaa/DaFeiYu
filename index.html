@@ -3,9 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#edf5ff" />
     <title>合成大肥鱼</title>
     <link rel="icon" type="image/webp" href="Assets/processed/DeepSeek.webp?v=2" />
+    <link rel="preload" as="image" href="Assets/illustrations/big-fish-eating-rice.webp" type="image/webp" fetchpriority="high" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -37,8 +38,8 @@
 
           <div class="play-footer">
             <p>
-              <span class="desktop-instructions">选择位置放置；每 0.6 秒可放下一个，相同角色会自动合成。</span>
-              <span class="touch-instructions" id="touch-instructions" aria-live="polite">拖动选位，再轻触放置（每 0.6 秒一个）。</span>
+              <span class="desktop-instructions">鼠标移动选位，点击放下角色（每 0.35 秒一个）；相同角色自动合成。</span>
+              <span class="touch-instructions" id="touch-instructions" aria-live="polite">轻点即落下；按住拖动选位，松手放置（每 0.35 秒一个）。</span>
             </p>
           </div>
         </section>
@@ -89,17 +90,34 @@
       </footer>
       <section id="asset-loader" class="asset-loader" role="status" aria-live="polite" aria-label="游戏素材加载状态">
         <div class="asset-loader-card">
-          <span class="asset-loader-spinner" aria-hidden="true"></span>
-          <h2 id="asset-loading-title">正在加载图片</h2>
-          <p id="asset-loading-message" class="asset-loading-message">请稍候…</p>
-          <div class="asset-progress-track" role="progressbar" aria-label="角色图片加载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <img class="asset-loader-character" src="Assets/illustrations/big-fish-eating-rice.webp" width="448" height="448" alt="" fetchpriority="high" decoding="async" />
+          <h2 id="asset-loading-title">正在干饭</h2>
+          <p id="asset-loading-message" class="asset-loading-message">大肥鱼正在偷吃用户的白饭，吃完这碗就来玩！</p>
+          <div class="asset-progress-track" role="progressbar" aria-label="干饭进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <span id="asset-progress" class="asset-progress"></span>
           </div>
-          <p id="asset-loading-count" class="asset-loading-count">0%</p>
+          <p id="asset-loading-count" class="asset-loading-count">干饭进度：0%</p>
           <button id="asset-retry" class="primary-button asset-retry" type="button" hidden>重试加载</button>
         </div>
       </section>
       <div id="announcer" class="sr-only" aria-live="polite"></div>
+      <div id="victory-toast" class="victory-toast" role="status" aria-live="polite" hidden>
+        <img id="victory-toast-avatar" alt="" />
+        <div class="victory-toast-copy">
+          <strong>通关啦！</strong>
+          <span>你已经合成出大肥鱼。</span>
+        </div>
+      </div>
+      <section id="victory-certificate" class="victory-certificate" role="status" aria-live="polite" aria-labelledby="victory-certificate-title" hidden>
+        <img id="victory-certificate-avatar" alt="" />
+        <div class="victory-certificate-copy">
+          <span class="victory-certificate-kicker">合成大肥鱼 · 成就解锁</span>
+          <h2 id="victory-certificate-title">通关认证</h2>
+          <p>认证通过：成功合成大肥鱼</p>
+          <strong id="victory-certificate-score">本局积分：0</strong>
+        </div>
+        <span class="victory-certificate-seal" aria-hidden="true">✓</span>
+      </section>
       <dialog id="game-over-dialog" class="result-dialog" aria-labelledby="result-title">
         <h2 id="result-title">本局结束</h2>
         <img id="result-avatar" class="result-avatar" alt="" hidden />

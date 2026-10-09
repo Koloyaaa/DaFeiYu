@@ -11,7 +11,8 @@
   const FLOOR = 594;
   const DANGER_LINE = 136;
   const DROP_Y = 66;
-  const DROP_INTERVAL = 0.6;
+  const DROP_INTERVAL = 0.35;
+  const VICTORY_STEP_DELAY = 10_000;
   const GRAVITY = 1450;
   const BASE_SIZE = 45;
   const SIZE_GROWTH = 1.21;
@@ -65,7 +66,11 @@
   const resultScore = document.getElementById("result-score");
   const resultAvatar = document.getElementById("result-avatar");
   const touchInstructions = document.getElementById("touch-instructions");
-  const TOUCH_DRAG_THRESHOLD = 14;
+  const victoryToast = document.getElementById("victory-toast");
+  const victoryToastAvatar = document.getElementById("victory-toast-avatar");
+  const victoryCertificate = document.getElementById("victory-certificate");
+  const victoryCertificateAvatar = document.getElementById("victory-certificate-avatar");
+  const victoryCertificateScore = document.getElementById("victory-certificate-score");
 
   const hasTouchInput = (navigator.maxTouchPoints || 0) > 0
     || (window.matchMedia && window.matchMedia("(any-pointer: coarse)").matches);
@@ -91,13 +96,14 @@
   let gameOver = false;
   let won = false;
   let pendingDropId = null;
-  let touchAimArmed = false;
   let activeTouchGesture = null;
   let lastFrame = 0;
   let simulationTime = 0;
   let lastDropAt = -Infinity;
   let nextPieceId = 1;
   let toastTimer = 0;
+  let victoryCertificateTimer = 0;
+  let victoryModalTimer = 0;
   let assetsReady = false;
   let assetLoadRun = 0;
 
@@ -123,8 +129,8 @@
     const percent = Math.round((completed / stages.length) * 100);
     assetProgress.style.width = `${percent}%`;
     assetProgress.parentElement.setAttribute("aria-valuenow", String(percent));
-    assetLoadingCount.textContent = `${percent}%`;
-    assetLoadingTitle.textContent = failedCount ? "图片加载失败" : "正在加载图片";
+    assetLoadingCount.textContent = `干饭进度：${percent}%`;
+    assetLoadingTitle.textContent = failedCount ? "图片加载失败" : "正在干饭";
   }
 
   function loadStageAssets(retryFailedOnly = false) {
@@ -135,9 +141,7 @@
     assetsReady = false;
     assetLoader.hidden = false;
     assetRetryButton.hidden = true;
-    assetLoadingMessage.textContent = retryFailedOnly
-      ? "正在重试…"
-      : "请稍候…";
+    assetLoadingMessage.textContent = "大肥鱼正在偷吃用户的白饭，吃完这碗就来玩！";
     updateAssetProgress(completed, 0);
 
     const requests = targets.map((stage) => new Promise((resolve) => {
@@ -169,7 +173,7 @@
         assetRetryButton.focus({ preventScroll: true });
         return;
       }
-      assetLoadingTitle.textContent = "加载完成";
+      assetLoadingTitle.textContent = "干饭完成";
       assetLoadingMessage.textContent = "";
       window.setTimeout(() => {
         if (run !== assetLoadRun) return;
@@ -255,9 +259,7 @@
     if (!touchInstructions) return;
     touchInstructions.textContent = gameOver
       ? "本局结束"
-      : touchAimArmed
-        ? "轻触棋盘放置（每 0.6 秒一个）"
-        : "拖动选位，再轻触放置";
+      : "轻点即落下；按住拖动选位，松手放置（每 0.35 秒一个）";
   }
 
   function dropCharacter() {
@@ -296,12 +298,12 @@
     }
     const gesture = activeTouchGesture;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
-    if (Math.abs(event.clientX - gesture.startX) >= TOUCH_DRAG_THRESHOLD) gesture.horizontalDrag = true;
-    if (!gesture.armedAtStart || gesture.horizontalDrag) aimX = pointerX(event);
+    aimX = pointerX(event);
   });
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) return;
     event.preventDefault();
+    if (!assetsReady || gameOver) return;
     canvas.focus({ preventScroll: true });
     if (event.pointerType === "mouse") {
       aimX = pointerX(event);
@@ -310,14 +312,9 @@
     }
     document.body.classList.add("has-touch-input");
     if (activeTouchGesture) return;
-    const armedAtStart = touchAimArmed;
-    if (!armedAtStart) aimX = pointerX(event);
+    aimX = pointerX(event);
     activeTouchGesture = {
       pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      armedAtStart,
-      horizontalDrag: false,
     };
     if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
   });
@@ -325,19 +322,8 @@
     const gesture = activeTouchGesture;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     activeTouchGesture = null;
-    const deltaX = event.clientX - gesture.startX;
-    const deltaY = event.clientY - gesture.startY;
-    const horizontalDrag = gesture.horizontalDrag || Math.abs(deltaX) >= TOUCH_DRAG_THRESHOLD;
-    const shortTap = Math.hypot(deltaX, deltaY) < TOUCH_DRAG_THRESHOLD;
-    if (gesture.armedAtStart && shortTap) {
-      updateTouchInstructions();
-      dropCharacter();
-      return;
-    }
-    if (horizontalDrag) {
-      aimX = pointerX(event);
-      touchAimArmed = !gameOver;
-    }
+    aimX = pointerX(event);
+    dropCharacter();
     updateTouchInstructions();
   });
   window.addEventListener("pointercancel", (event) => {
@@ -367,6 +353,7 @@
   });
 
   function restart() {
+    clearVictorySequence();
     pieces = [];
     particles = [];
     score = 0;
@@ -376,7 +363,6 @@
     aimX = W / 2;
     gameOver = false;
     won = false;
-    touchAimArmed = false;
     activeTouchGesture = null;
     setPendingDrop(null);
     simulationTime = 0;
@@ -992,7 +978,7 @@
   }
 
   function emitMerge(x, y, newLevel) {
-    const colors = ["#f4cf9f", "#eea27e", "#e9c969", "#a5d7bf", "#b8c4e8"];
+    const colors = ["#75aeea", "#68c2e5", "#75cbbb", "#a4c8f5", "#4d8fd5"];
     for (let index = 0; index < 15; index += 1) {
       const angle = (Math.PI * 2 * index) / 15 + Math.random() * 0.16;
       const speed = 70 + Math.random() * 145;
@@ -1016,6 +1002,38 @@
     toastTimer = window.setTimeout(() => { toast.hidden = true; }, 1100);
   }
 
+  function clearVictorySequence() {
+    window.clearTimeout(victoryCertificateTimer);
+    window.clearTimeout(victoryModalTimer);
+    victoryCertificateTimer = 0;
+    victoryModalTimer = 0;
+    victoryToast.hidden = true;
+    victoryCertificate.hidden = true;
+  }
+
+  function startVictorySequence() {
+    clearVictorySequence();
+    const finalImage = stages[stages.length - 1].src;
+    victoryToastAvatar.src = finalImage;
+    victoryCertificateAvatar.src = finalImage;
+    victoryCertificateScore.textContent = `本局积分：${resultScore.textContent}`;
+    victoryToast.hidden = false;
+    announcer.textContent = "通关啦！你已经合成出大肥鱼。";
+
+    victoryCertificateTimer = window.setTimeout(() => {
+      if (!gameOver || !won) return;
+      victoryToast.hidden = true;
+      victoryCertificate.hidden = false;
+      announcer.textContent = `通关认证通过。本局积分：${resultScore.textContent}。`;
+      victoryModalTimer = window.setTimeout(() => {
+        if (!gameOver || !won) return;
+        victoryCertificate.hidden = true;
+        announcer.textContent = "通关成功，本局结束。";
+        if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+      }, VICTORY_STEP_DELAY);
+    }, VICTORY_STEP_DELAY);
+  }
+
   function finishGame(completed) {
     if (gameOver) return;
     gameOver = true;
@@ -1024,23 +1042,28 @@
     resultAvatar.hidden = !completed;
     if (completed) {
       resultAvatar.src = stages[stages.length - 1].src;
-      resultTitle.textContent = "通关";
-      resultCopy.textContent = "已合成到最后阶段";
+      resultTitle.textContent = "本局结束";
+      resultCopy.textContent = "恭喜你成功合成出了大肥鱼！";
     } else {
       resultTitle.textContent = "本局结束";
       resultCopy.textContent = `最高阶段：${stages[highestLevel].id}`;
     }
-    announcer.textContent = completed ? "通关" : "本局结束";
-    if (typeof dialog.showModal === "function") dialog.showModal();
+    if (completed) {
+      startVictorySequence();
+    } else {
+      clearVictorySequence();
+      announcer.textContent = "本局结束";
+      if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+    }
   }
 
   function drawBackground() {
     context.clearRect(0, 0, W, H);
-    context.fillStyle = "#ffffff";
+    context.fillStyle = "#f3f8ff";
     context.fillRect(0, 0, W, H);
 
     context.save();
-    context.strokeStyle = "#d8d8d8";
+    context.strokeStyle = "#c5d8ec";
     context.lineWidth = 1.5;
     context.lineCap = "square";
     context.beginPath();
@@ -1056,13 +1079,13 @@
     context.save();
     context.setLineDash([4, 6]);
     context.lineWidth = 1;
-    context.strokeStyle = "rgb(190 92 77 / 72%)";
+    context.strokeStyle = "rgb(45 115 191 / 70%)";
     context.beginPath();
     context.moveTo(LEFT + 1, DANGER_LINE);
     context.lineTo(RIGHT - 1, DANGER_LINE);
     context.stroke();
     context.setLineDash([]);
-    context.fillStyle = "#9b6259";
+    context.fillStyle = "#2d73bf";
     context.font = "500 10px 'Microsoft YaHei', sans-serif";
     context.textAlign = "right";
     context.fillText("结束线", RIGHT - 5, DANGER_LINE - 6);
@@ -1084,7 +1107,7 @@
       context.scale(1 - impactSquash, 1 + impactSquash * 0.85);
       context.rotate(-relativeSquashAngle);
     }
-    context.shadowColor = "rgb(48 88 76 / 22%)";
+    context.shadowColor = "rgb(35 83 133 / 22%)";
     context.shadowBlur = Math.min(8, metrics.diameter * 0.11);
     context.shadowOffsetY = 2;
     context.drawImage(
@@ -1107,7 +1130,7 @@
     const previewBounds = pieceAabb({ level: currentLevel, x: aimXClamped, y: previewY, w: previewMetrics.w, h: previewMetrics.h, angle: 0 });
     context.save();
     context.setLineDash([3, 6]);
-    context.strokeStyle = "rgb(48 109 94 / 44%)";
+    context.strokeStyle = "rgb(45 115 191 / 46%)";
     context.lineWidth = 1;
     context.beginPath();
     context.moveTo(aimXClamped, previewBounds.bottom + 3);
