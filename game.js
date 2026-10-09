@@ -23,7 +23,8 @@
   const SLEEP_DELAY = 0.45;
   const MIN_BOUNCE_SPEED = 90;
   const CONTACT_FRICTION = 0.3;
-  const COLLISION_SLOP = 2; // Allow a tiny overlap so crowded stacks can pack more tightly.
+  const COLLISION_POLYGON_SCALE = 0.96;
+  const COLLISION_SLOP = 3; // Let crowded stacks overlap slightly instead of pushing apart.
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
@@ -554,8 +555,8 @@
     let top = Infinity;
     let bottom = -Infinity;
     for (let index = 0; index < polygon.length; index += 2) {
-      const localX = (polygon[index] - 0.5) * piece.w * scale;
-      const localY = (polygon[index + 1] - 0.5) * piece.h * scale;
+      const localX = (polygon[index] - 0.5) * piece.w * scale * COLLISION_POLYGON_SCALE;
+      const localY = (polygon[index + 1] - 0.5) * piece.h * scale * COLLISION_POLYGON_SCALE;
       const worldX = piece.x + cosine * localX - sine * localY;
       const worldY = piece.y + sine * localX + cosine * localY;
       vertices[index] = worldX;
