@@ -235,7 +235,6 @@ def process(path: Path) -> dict[str, object]:
                 "height": round(box_height / OUTPUT_SIZE, 5),
             },
             "vertexCount": len(polygon),
-            "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin.",
         },
         "removedBackgroundPercent": round(float(background.mean() * 100.0), 2),
     }

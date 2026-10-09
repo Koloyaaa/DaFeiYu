@@ -115,7 +115,7 @@
     assetProgress.style.width = `${percent}%`;
     assetProgress.parentElement.setAttribute("aria-valuenow", String(percent));
     assetLoadingCount.textContent = `${percent}%`;
-    assetLoadingTitle.textContent = failedCount ? "有素材没有加载成功" : "正在加载角色素材";
+    assetLoadingTitle.textContent = failedCount ? "图片加载失败" : "正在加载图片";
   }
 
   function loadStageAssets(retryFailedOnly = false) {
@@ -127,8 +127,8 @@
     assetLoader.hidden = false;
     assetRetryButton.hidden = true;
     assetLoadingMessage.textContent = retryFailedOnly
-      ? "正在重新加载未成功的图片…"
-      : "先把所有角色图片准备好，再开始游戏。";
+      ? "正在重试…"
+      : "请稍候…";
     updateAssetProgress(completed, 0);
 
     const requests = targets.map((stage) => new Promise((resolve) => {
@@ -154,14 +154,14 @@
     Promise.all(requests).then(() => {
       if (run !== assetLoadRun) return;
       if (failed.length) {
-        assetLoadingTitle.textContent = "有素材没有加载成功";
-        assetLoadingMessage.textContent = `加载失败：${failed.join("、")}。检查网络后可以重试。`;
+        assetLoadingTitle.textContent = "图片加载失败";
+        assetLoadingMessage.textContent = `${failed.join("、")} 加载失败`;
         assetRetryButton.hidden = false;
         assetRetryButton.focus({ preventScroll: true });
         return;
       }
-      assetLoadingTitle.textContent = "素材准备好了";
-      assetLoadingMessage.textContent = "图片已全部加载，马上开始。";
+      assetLoadingTitle.textContent = "加载完成";
+      assetLoadingMessage.textContent = "";
       window.setTimeout(() => {
         if (run !== assetLoadRun) return;
         assetLoader.hidden = true;
@@ -244,19 +244,19 @@
   function updateTouchInstructions() {
     if (!touchInstructions) return;
     touchInstructions.textContent = gameOver
-      ? "本局已结束。"
+      ? "本局结束"
       : pendingDropId !== null
-        ? "等待角色落稳后，再拖动选择下一位的位置。"
+        ? "等待角色落稳"
         : touchAimArmed
-          ? "位置已选好，再轻触棋盘即可放置。"
-          : "拖动棋盘选择位置，松手后再轻触棋盘放置。短距离轻触只移动预览，不会放下角色。";
+          ? "轻触棋盘放置"
+          : "拖动选位，松手后轻触放置";
   }
 
   function dropCharacter() {
     if (!assetsReady || gameOver) return;
     if (pendingDropId !== null) {
       if (simulationTime - lastDropNotice > 0.8) {
-        showToast("等角色落到其他角色或池底，再放下一个");
+        showToast("角色尚未落稳");
         lastDropNotice = simulationTime;
       }
       return;
@@ -384,7 +384,7 @@
     if (dialog.open) dialog.close();
     toast.hidden = true;
     resultAvatar.hidden = true;
-    announcer.textContent = "新的一局开始啦。";
+    announcer.textContent = "新的一局开始";
     draw();
   }
 
@@ -760,7 +760,7 @@
     addPiece(newLevel, newX, y, vx, vy, 0.18, alreadyEnteredBoard, angle, angularVelocity);
     highestLevel = Math.max(highestLevel, newLevel);
     updateInterface();
-    announcer.textContent = `合成成功，进化成 ${stages[newLevel].id}！`;
+    announcer.textContent = `合成：${stages[newLevel].id}`;
     if (newLevel === stages.length - 1) {
       won = true;
       finishGame(true);
@@ -782,7 +782,7 @@
         size: 2 + Math.random() * 3.2,
       });
     }
-    showToast(`合成成功 · ${stages[newLevel].id}`);
+    showToast(stages[newLevel].id);
   }
 
   function showToast(message) {
@@ -800,13 +800,13 @@
     resultAvatar.hidden = !completed;
     if (completed) {
       resultAvatar.src = stages[stages.length - 1].src;
-      resultTitle.textContent = "DeepSeek（大肥鱼）登场！";
-    resultCopy.textContent = "十一位伙伴终于合成到最后一阶。大肥鱼，是 DeepSeek 的昵称。";
+      resultTitle.textContent = "通关";
+      resultCopy.textContent = "已合成到最后阶段";
     } else {
       resultTitle.textContent = "本局结束";
-      resultCopy.textContent = `角色越过上方界线，本局进化到 ${stages[highestLevel].id}，获得 ${score.toLocaleString("zh-CN")} 分。`;
+      resultCopy.textContent = `最高阶段：${stages[highestLevel].id}`;
     }
-    announcer.textContent = completed ? "恭喜，合成到 DeepSeek，也就是大肥鱼。" : "角色越过上方界线，本局结束。";
+    announcer.textContent = completed ? "通关" : "本局结束";
     if (typeof dialog.showModal === "function") dialog.showModal();
   }
 

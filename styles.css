@@ -55,7 +55,6 @@ button { font: inherit; }
   animation: asset-loader-spin .8s linear infinite;
 }
 @keyframes asset-loader-spin { to { transform: rotate(360deg); } }
-.asset-loader-card .eyebrow { margin: 0 0 6px; }
 .asset-loader-card h2 { margin: 0; font-size: 1.12rem; }
 .asset-loading-message { min-height: 2.8em; margin: 10px 0 18px; color: var(--muted); font-size: .84rem; line-height: 1.5; }
 .asset-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: #f0efed; }
@@ -102,17 +101,6 @@ button { font: inherit; }
 .brand-copy h1, .section-heading h2, .card-heading h2 { margin: 0; }
 .brand-copy h1 { font-size: clamp(1.3rem, 2.4vw, 1.65rem); letter-spacing: -.035em; line-height: 1.08; }
 
-.eyebrow {
-  margin: 0 0 3px;
-  color: var(--muted);
-  font: 500 .62rem/1.2 "SF Mono", Consolas, monospace;
-  letter-spacing: .075em;
-  text-transform: uppercase;
-}
-
-.eyebrow span { color: var(--accent); }
-.top-note { max-width: none; flex: 0 0 auto; margin: 0 0 0 auto; color: var(--muted); font-size: .74rem; line-height: 1.2; text-align: right; white-space: nowrap; }
-
 .game-layout {
   display: grid;
   min-height: 0;
@@ -155,21 +143,6 @@ button { font: inherit; }
 
 .board-frame canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
 .board-frame canvas:focus-visible { box-shadow: inset 0 0 0 2px #b9776a; }
-
-.board-top-label {
-  position: absolute;
-  top: 10px;
-  left: 11px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #8b8b86;
-  font: 500 .44rem/1.15 "SF Mono", Consolas, monospace;
-  letter-spacing: .08em;
-  pointer-events: none;
-}
-
-.board-spark { color: #a96558; font-size: .7rem; }
 
 .game-toast {
   position: absolute;
@@ -278,9 +251,8 @@ button:focus-visible { outline: 2px solid #b9776a; outline-offset: 2px; }
 
 .result-dialog { width: min(360px, calc(100% - 32px)); padding: 25px 23px 21px; color: var(--ink); background: #ffffff; border: 1px solid var(--border); border-radius: 10px; text-align: center; }
 .result-dialog::backdrop { background: rgb(30 30 28 / 28%); }
-.result-spark { margin-bottom: 7px; color: var(--accent); font-size: 1.55rem; }
 .result-dialog h2 { margin: 6px 0 8px; font-size: 1.35rem; }
-.result-dialog > p:not(.eyebrow) { margin: 0 auto 16px; color: var(--muted); font-size: .8rem; line-height: 1.6; }
+.result-dialog > p { margin: 0 auto 16px; color: var(--muted); font-size: .8rem; line-height: 1.6; }
 .result-stats { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding: 9px 11px; background: var(--soft); border-radius: 6px; text-align: left; }
 .result-stats strong { font: 500 1.1rem "SF Mono", Consolas, monospace; }
 .result-dialog .primary-button { width: 100%; }
@@ -290,7 +262,6 @@ button:focus-visible { outline: 2px solid #b9776a; outline-offset: 2px; }
 @media (max-width: 780px) {
   .app-shell { display: block; width: min(610px, calc(100% - 30px)); min-height: 100dvh; padding: 14px 0 10px; }
   .topbar { flex-wrap: wrap; margin-bottom: 14px; }
-  .top-note { width: 100%; flex: 1 0 100%; margin: 0; font-size: .68rem; text-align: left; }
   .game-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .play-column { padding: 12px 12px 9px; }
   .board-frame { width: min(100%, 460px); height: auto; min-height: 0; margin: 0 auto; }
@@ -309,8 +280,6 @@ button:focus-visible { outline: 2px solid #b9776a; outline-offset: 2px; }
   .brand-mark { width: 40px; height: 40px; }
   .brand-icon { width: 100%; height: 100%; }
   .brand-copy h1 { font-size: 1.25rem; }
-  .brand-copy .eyebrow { font-size: .53rem; }
-  .top-note { font-size: .64rem; line-height: 1.2; }
   .section-heading h2 { font-size: .97rem; }
   .play-column { padding: 10px 9px 8px; }
   .board-frame { border-radius: 6px; }

@@ -139,8 +139,7 @@
           "width": 0.91016,
           "height": 0.89453
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 33.93
     },
@@ -260,8 +259,7 @@
           "width": 0.91016,
           "height": 0.73633
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 40.47
     },
@@ -381,8 +379,7 @@
           "width": 0.91016,
           "height": 0.87305
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 43.77
     },
@@ -502,8 +499,7 @@
           "width": 0.91016,
           "height": 0.89453
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 35.31
     },
@@ -623,8 +619,7 @@
           "width": 0.91016,
           "height": 0.81055
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 40.57
     },
@@ -744,8 +739,7 @@
           "width": 0.91016,
           "height": 0.86133
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 36.5
     },
@@ -865,8 +859,7 @@
           "width": 0.91016,
           "height": 0.81836
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 39.85
     },
@@ -986,8 +979,7 @@
           "width": 0.91016,
           "height": 0.76758
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 38.96
     },
@@ -1103,8 +1095,7 @@
           "width": 0.91016,
           "height": 0.83984
         },
-        "vertexCount": 19,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 19
       },
       "removedBackgroundPercent": 34.58
     },
@@ -1224,8 +1215,7 @@
           "width": 0.91016,
           "height": 0.89258
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 32.97
     },
@@ -1345,8 +1335,7 @@
           "width": 0.87305,
           "height": 0.91016
         },
-        "vertexCount": 20,
-        "note": "Low-vertex convex polygon encloses the full alpha silhouette with a small rasterization margin."
+        "vertexCount": 20
       },
       "removedBackgroundPercent": 0.0
     }

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
-    <title>合成大肥鱼 · AI 娘合成</title>
+    <title>合成大肥鱼</title>
     <link rel="icon" type="image/webp" href="Assets/processed/DeepSeek.webp?v=2" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -17,31 +17,28 @@
         <div class="brand-copy">
           <h1>合成大肥鱼</h1>
         </div>
-        <p class="top-note">让十一位 AI 娘相遇、进化，最终解锁 DeepSeek（大肥鱼）。</p>
       </header>
 
       <div class="game-layout">
         <section class="play-column" aria-labelledby="play-title">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">合成玩法 <span>·</span> 轻松玩一局</p>
-              <h2 id="play-title">AI 娘合成</h2>
+              <h2 id="play-title">合成</h2>
             </div>
           </div>
 
           <div class="board-frame">
             <canvas id="game" width="420" height="620" tabindex="0" role="img"
-              aria-label="合成大肥鱼游戏区域。鼠标点击可放下角色；触屏先拖动选择位置，再轻触棋盘确认放置。角色只会在碰撞时根据撞击位置旋转，相同模型相遇会合成下一阶段。">
+              aria-label="合成大肥鱼游戏区域。选择位置放下角色，合并相同角色。">
               你的浏览器不支持画布游戏，请换一个较新的浏览器。
             </canvas>
-            <div class="board-top-label" aria-hidden="true"><span>MODEL<br />LAB</span><span class="board-spark">✦</span></div>
             <div id="game-toast" class="game-toast" aria-live="polite" hidden></div>
           </div>
 
           <div class="play-footer">
             <p>
-              <span class="desktop-instructions">拖动选择位置，点击棋盘放下角色；等它碰到其他角色或池底后再放下一个。同款相遇就会合成，碰撞会带来轻微旋转。</span>
-              <span class="touch-instructions" id="touch-instructions" aria-live="polite">拖动棋盘选择位置，松手后再轻触棋盘放置。短距离轻触只移动预览，不会放下角色。</span>
+              <span class="desktop-instructions">选择位置并放置；角色落稳后可放下一个，相同角色会自动合成。</span>
+              <span class="touch-instructions" id="touch-instructions" aria-live="polite">拖动选位，松手后轻触放置。</span>
             </p>
           </div>
         </section>
@@ -71,7 +68,7 @@
 
           <section class="collection-card" aria-labelledby="collection-title">
             <div class="card-heading collection-heading">
-              <div><p class="eyebrow">合成顺序</p><h2 id="collection-title">AI 娘图鉴</h2></div>
+              <div><h2 id="collection-title">角色图鉴</h2></div>
               <span id="collection-count" class="collection-count">0 / 11</span>
             </div>
             <ol id="collection-list" class="collection-list" aria-label="模型进化顺序"></ol>
@@ -87,30 +84,26 @@
       <footer class="page-footer">
         <span>作者：DornGames <a class="author-handle" href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">@LéoWEE</a></span>
         <nav class="footer-links" aria-label="相关链接">
-          <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">作者 GitHub</a>
           <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">作品仓库</a>
         </nav>
       </footer>
       <section id="asset-loader" class="asset-loader" role="status" aria-live="polite" aria-label="游戏素材加载状态">
         <div class="asset-loader-card">
           <span class="asset-loader-spinner" aria-hidden="true"></span>
-          <p class="eyebrow">准备游戏</p>
-          <h2 id="asset-loading-title">正在加载角色素材</h2>
-          <p id="asset-loading-message" class="asset-loading-message">先把所有角色图片准备好，再开始游戏。</p>
+          <h2 id="asset-loading-title">正在加载图片</h2>
+          <p id="asset-loading-message" class="asset-loading-message">请稍候…</p>
           <div class="asset-progress-track" role="progressbar" aria-label="角色图片加载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <span id="asset-progress" class="asset-progress"></span>
           </div>
-          <p id="asset-loading-count" class="asset-loading-count">0 / 11</p>
+          <p id="asset-loading-count" class="asset-loading-count">0%</p>
           <button id="asset-retry" class="primary-button asset-retry" type="button" hidden>重试加载</button>
         </div>
       </section>
       <div id="announcer" class="sr-only" aria-live="polite"></div>
       <dialog id="game-over-dialog" class="result-dialog" aria-labelledby="result-title">
-        <div class="result-spark" aria-hidden="true">✦</div>
-        <p class="eyebrow">本局结果</p>
         <h2 id="result-title">本局结束</h2>
         <img id="result-avatar" class="result-avatar" alt="" hidden />
-        <p id="result-copy">这一局已经很棒，来看看下一轮会解锁谁。</p>
+        <p id="result-copy"></p>
         <div class="result-stats"><span>本局积分</span><strong id="result-score">0</strong></div>
         <button id="dialog-restart" class="primary-button" type="button">再开一局 <span aria-hidden="true">→</span></button>
       </dialog>
