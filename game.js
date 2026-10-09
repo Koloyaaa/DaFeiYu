@@ -11,6 +11,7 @@
   const FLOOR = 594;
   const DANGER_LINE = 136;
   const DROP_Y = 66;
+  const DROP_INTERVAL = 0.6;
   const GRAVITY = 1450;
   const BASE_SIZE = 45;
   const SIZE_GROWTH = 1.21;
@@ -26,11 +27,13 @@
   const WALL_RESTITUTION = 0.45;
   const SQUASH_DECAY = 9;
   const SQUASH_MAX = 0.3;
-  const CONTACT_FRICTION = 0.3;
-  const COLLISION_POLYGON_SCALE = 0.96;
+  const FRICTION_COEFFICIENT = 0.26;
+  const COLLISION_POLYGON_SCALE = 0.99;
   const COLLISION_SLOP = 3; // Let crowded stacks overlap slightly instead of pushing apart.
   const SLEEP_WAKE_SPEED = MIN_BOUNCE_SPEED;
   const SLEEP_WAKE_PENETRATION = COLLISION_SLOP + 8;
+  const MERGE_PROXIMITY_MIN = 4;
+  const MERGE_PROXIMITY_MAX = 8;
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
@@ -92,9 +95,9 @@
   let activeTouchGesture = null;
   let lastFrame = 0;
   let simulationTime = 0;
+  let lastDropAt = -Infinity;
   let nextPieceId = 1;
   let toastTimer = 0;
-  let lastDropNotice = -Infinity;
   let assetsReady = false;
   let assetLoadRun = 0;
 
@@ -252,26 +255,18 @@
     if (!touchInstructions) return;
     touchInstructions.textContent = gameOver
       ? "本局结束"
-      : pendingDropId !== null
-        ? "等待角色落稳"
-        : touchAimArmed
-          ? "轻触棋盘放置"
-          : "拖动选位，松手后轻触放置";
+      : touchAimArmed
+        ? "轻触棋盘放置（每 0.6 秒一个）"
+        : "拖动选位，再轻触放置";
   }
 
   function dropCharacter() {
     if (!assetsReady || gameOver) return;
-    if (pendingDropId !== null) {
-      if (simulationTime - lastDropNotice > 0.8) {
-        showToast("角色尚未落稳");
-        lastDropNotice = simulationTime;
-      }
-      return;
-    }
+    if (simulationTime - lastDropAt < DROP_INTERVAL) return;
     const metrics = metricsFor(currentLevel);
     const x = clamp(aimX, LEFT + metrics.w / 2, RIGHT - metrics.w / 2);
     const dropped = addPiece(currentLevel, x, DROP_Y + metrics.h / 2);
-    touchAimArmed = false;
+    lastDropAt = simulationTime;
     setPendingDrop(dropped.id);
     highestLevel = Math.max(highestLevel, currentLevel);
     currentLevel = nextLevel;
@@ -335,14 +330,13 @@
     const horizontalDrag = gesture.horizontalDrag || Math.abs(deltaX) >= TOUCH_DRAG_THRESHOLD;
     const shortTap = Math.hypot(deltaX, deltaY) < TOUCH_DRAG_THRESHOLD;
     if (gesture.armedAtStart && shortTap) {
-      touchAimArmed = false;
       updateTouchInstructions();
       dropCharacter();
       return;
     }
     if (horizontalDrag) {
       aimX = pointerX(event);
-      touchAimArmed = !gameOver && pendingDropId === null;
+      touchAimArmed = !gameOver;
     }
     updateTouchInstructions();
   });
@@ -386,7 +380,7 @@
     activeTouchGesture = null;
     setPendingDrop(null);
     simulationTime = 0;
-    lastDropNotice = -Infinity;
+    lastDropAt = -Infinity;
     updateInterface();
     if (dialog.open) dialog.close();
     toast.hidden = true;
@@ -437,14 +431,35 @@
       piece.y -= bounds.bottom - FLOOR;
       if (piece.id === pendingDropId && piece.vy > 0) setPendingDrop(null);
       const impactSpeed = piece.vy;
+      let normalImpulsePerMass = Math.max(0, impactSpeed);
       if (impactSpeed > MIN_BOUNCE_SPEED) {
         piece.vy = -piece.vy * WALL_RESTITUTION;
+        normalImpulsePerMass += Math.abs(piece.vy);
         squashPiece(piece, 0, -1, impactSpeed);
-        piece.angularVelocity = clamp(piece.angularVelocity + clamp(piece.vx * 0.00025, -0.08, 0.08), -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
-      } else {
+        const floorContact = averageSupportPoint(pieceGeometry(piece).vertices, 0, 1, true);
+        const spinInertia = (piece.w * piece.w + piece.h * piece.h) / 12;
+        const floorOffsetX = floorContact.x - piece.x;
+        const floorKick = clamp(-impactSpeed * floorOffsetX / spinInertia * piece.w * 0.035, -32, 32);
+        const floorSpin = clamp(
+          -impactSpeed * floorOffsetX / spinInertia * 0.04,
+          -0.18,
+          0.18,
+        );
+        piece.vx += floorKick;
+        piece.angularVelocity = clamp(
+          piece.angularVelocity + floorSpin + clamp(piece.vx * 0.00025, -0.08, 0.08),
+          -MAX_ANGULAR_SPEED,
+          MAX_ANGULAR_SPEED,
+        );
+      } else if (impactSpeed >= 0) {
         piece.vy = 0;
+        normalImpulsePerMass = Math.max(normalImpulsePerMass, GRAVITY * dt);
       }
-      piece.vx *= Math.pow(0.915, dt * 60);
+      // Coulomb friction: horizontal speed changes by μ times the floor's normal impulse.
+      const maximumFrictionDelta = FRICTION_COEFFICIENT * normalImpulsePerMass;
+      piece.vx = Math.abs(piece.vx) <= maximumFrictionDelta
+        ? 0
+        : piece.vx - Math.sign(piece.vx) * maximumFrictionDelta;
     }
   }
 
@@ -483,7 +498,20 @@
       if (merged || gameOver) break;
     }
 
-    for (const piece of pieces) updateSleepState(piece, dt);
+    const newlySleepingPieces = [];
+    for (const piece of pieces) {
+      if (updateSleepState(piece, dt)) newlySleepingPieces.push(piece);
+    }
+
+    // Only do near-miss checks when a piece settles, never on every frame.
+    for (const piece of newlySleepingPieces) {
+      const partner = findNearbyMergePartner(piece);
+      if (!partner) continue;
+      if (piece.id === pendingDropId || partner.id === pendingDropId) setPendingDrop(null);
+      mergeCharacters(piece, partner);
+      merged = true;
+      break;
+    }
 
     for (const piece of pieces) {
       const bounds = pieceSilhouetteAabb(piece);
@@ -549,15 +577,92 @@
   }
 
   function updateSleepState(piece, dt) {
-    if (piece.sleeping) return;
+    if (piece.sleeping) return false;
     const slowEnough = Math.hypot(piece.vx, piece.vy) <= SLEEP_LINEAR_SPEED &&
       Math.abs(piece.angularVelocity) <= SLEEP_ANGULAR_SPEED;
     piece.sleepTimer = slowEnough ? piece.sleepTimer + dt : 0;
-    if (piece.sleepTimer < SLEEP_DELAY) return;
+    if (piece.sleepTimer < SLEEP_DELAY) return false;
+    if (!hasStableSupport(piece)) {
+      piece.sleepTimer = 0;
+      return false;
+    }
     piece.vx = 0;
     piece.vy = 0;
     piece.angularVelocity = 0;
     piece.sleeping = true;
+    return true;
+  }
+
+  function hasStableSupport(piece) {
+    const bounds = pieceGeometry(piece).bounds;
+    if (bounds.bottom >= FLOOR - 0.5) return true;
+
+    let supportNormalX = 0;
+    let supportNormalY = 0;
+    const vertices = pieceGeometry(piece).vertices;
+    for (const support of pieces) {
+      if (support.id === piece.id) continue;
+      const supportGeometry = pieceGeometry(support);
+      if (!aabbsWithinDistance(bounds, supportGeometry.bounds, COLLISION_SLOP + 2)) continue;
+      const contact = polygonPenetration(vertices, supportGeometry.vertices, piece.id, support.id);
+      if (!contact || contact.ny <= 0) continue;
+      supportNormalX += contact.nx;
+      supportNormalY += contact.ny;
+    }
+
+    return supportNormalY > 0.25 &&
+      Math.abs(supportNormalX) <= FRICTION_COEFFICIENT * supportNormalY;
+  }
+
+  function findNearbyMergePartner(piece) {
+    if (piece.mergeLock > 0 || simulationTime - piece.bornAt <= 0.05) return null;
+    const proximity = clamp(Math.min(piece.w, piece.h) * 0.08, MERGE_PROXIMITY_MIN, MERGE_PROXIMITY_MAX);
+    const bounds = pieceGeometry(piece).bounds;
+
+    for (const candidate of pieces) {
+      if (candidate.id === piece.id || !candidate.sleeping || candidate.level !== piece.level) continue;
+      if (candidate.mergeLock > 0 || simulationTime - candidate.bornAt <= 0.05) continue;
+      if (!aabbsWithinDistance(bounds, pieceGeometry(candidate).bounds, proximity)) continue;
+      if (polygonsWithinDistance(pieceGeometry(piece).vertices, pieceGeometry(candidate).vertices, proximity)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  function aabbsWithinDistance(a, b, distance) {
+    const gapX = Math.max(0, a.left - b.right, b.left - a.right);
+    const gapY = Math.max(0, a.top - b.bottom, b.top - a.bottom);
+    return gapX * gapX + gapY * gapY <= distance * distance;
+  }
+
+  function polygonsWithinDistance(verticesA, verticesB, distance) {
+    const maximumDistanceSquared = distance * distance;
+    return verticesWithinDistanceOfPolygon(verticesA, verticesB, maximumDistanceSquared) ||
+      verticesWithinDistanceOfPolygon(verticesB, verticesA, maximumDistanceSquared);
+  }
+
+  function verticesWithinDistanceOfPolygon(vertices, polygon, maximumDistanceSquared) {
+    const count = polygon.length / 2;
+    for (let index = 0; index < vertices.length; index += 2) {
+      const x = vertices[index];
+      const y = vertices[index + 1];
+      for (let edge = 0; edge < count; edge += 1) {
+        const next = (edge + 1) % count;
+        const ax = polygon[edge * 2];
+        const ay = polygon[edge * 2 + 1];
+        const edgeX = polygon[next * 2] - ax;
+        const edgeY = polygon[next * 2 + 1] - ay;
+        const lengthSquared = edgeX * edgeX + edgeY * edgeY;
+        const projection = lengthSquared > 1e-8
+          ? clamp(((x - ax) * edgeX + (y - ay) * edgeY) / lengthSquared, 0, 1)
+          : 0;
+        const dx = x - (ax + edgeX * projection);
+        const dy = y - (ay + edgeY * projection);
+        if (dx * dx + dy * dy <= maximumDistanceSquared) return true;
+      }
+    }
+    return false;
   }
 
   function pieceGeometry(piece) {
@@ -663,8 +768,6 @@
   function resolveBounce(a, b, contact, applyImpulse = true) {
     const nx = contact.nx;
     const ny = contact.ny;
-    const boundsA = pieceAabb(a);
-    const boundsB = pieceAabb(b);
     const depth = contact.depth - COLLISION_SLOP;
     if (!Number.isFinite(depth)) return;
 
@@ -699,7 +802,7 @@
       const frictionInverseTotal = invMassA * (tangentX * tangentX + verticalResponseA * tangentY * tangentY) +
         invMassB * (tangentX * tangentX + verticalResponseB * tangentY * tangentY);
       const frictionImpulse = frictionInverseTotal > 1e-8
-        ? clamp(-tangentSpeed / frictionInverseTotal, -impulse * CONTACT_FRICTION, impulse * CONTACT_FRICTION)
+        ? clamp(-tangentSpeed / frictionInverseTotal, -impulse * FRICTION_COEFFICIENT, impulse * FRICTION_COEFFICIENT)
         : 0;
       a.vx -= impulse * invMassA * nx;
       a.vy -= impulse * invMassA * ny * verticalResponseA;
@@ -714,20 +817,62 @@
         squashPiece(b, nx, ny, closingSpeed);
       }
       if (closingSpeed > 70) {
-        const contactX = (Math.max(boundsA.left, boundsB.left) + Math.min(boundsA.right, boundsB.right)) / 2;
-        const contactY = (Math.max(boundsA.top, boundsB.top) + Math.min(boundsA.bottom, boundsB.bottom)) / 2;
+        const impactPoint = collisionContactPoint(a, b, nx, ny);
         const inertiaA = (a.w * a.h) * (a.w * a.w + a.h * a.h) / 12;
         const inertiaB = (b.w * b.h) * (b.w * b.w + b.h * b.h) / 12;
-        const armA = (contactX - a.x) * ny - (contactY - a.y) * nx;
-        const armB = (contactX - b.x) * ny - (contactY - b.y) * nx;
-        const spinA = clamp(-impulse * armA / inertiaA * 0.22, -0.24, 0.24);
-        const spinB = clamp(impulse * armB / inertiaB * 0.22, -0.24, 0.24);
+        const offsetAX = impactPoint.x - a.x;
+        const offsetAY = impactPoint.y - a.y;
+        const offsetBX = impactPoint.x - b.x;
+        const offsetBY = impactPoint.y - b.y;
+        const armA = offsetAX * ny - offsetAY * nx;
+        const armB = offsetBX * ny - offsetBY * nx;
+        const armATangent = offsetAX * tangentY - offsetAY * tangentX;
+        const armBTangent = offsetBX * tangentY - offsetBY * tangentX;
+        const impactTangentX = -ny;
+        const impactTangentY = nx;
+        const impactRadius = Math.max(10, Math.min(a.w, a.h, b.w, b.h) * 0.5);
+        const impactOffset = clamp((armA + armB) * 0.5 / impactRadius, -0.5, 0.5);
+        const tangentKick = impulse * impactOffset * 0.045;
+        a.vx -= tangentKick * impactTangentX * invMassA;
+        a.vy -= tangentKick * impactTangentY * invMassA * verticalResponseA;
+        b.vx += tangentKick * impactTangentX * invMassB;
+        b.vy += tangentKick * impactTangentY * invMassB * verticalResponseB;
+        const armAImpactTangent = offsetAX * impactTangentY - offsetAY * impactTangentX;
+        const armBImpactTangent = offsetBX * impactTangentY - offsetBY * impactTangentX;
+        const spinA = clamp((-impulse * armA - frictionImpulse * armATangent - tangentKick * armAImpactTangent) / inertiaA * 0.26, -0.24, 0.24);
+        const spinB = clamp((impulse * armB + frictionImpulse * armBTangent + tangentKick * armBImpactTangent) / inertiaB * 0.26, -0.24, 0.24);
         if (!a.sleeping) a.angularVelocity = clamp(a.angularVelocity + spinA, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
         if (!b.sleeping) b.angularVelocity = clamp(b.angularVelocity + spinB, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
       }
     }
     clampPieceToBin(a);
     clampPieceToBin(b);
+  }
+
+  function averageSupportPoint(vertices, nx, ny, findMaximum) {
+    let target = findMaximum ? -Infinity : Infinity;
+    for (let index = 0; index < vertices.length; index += 2) {
+      const projection = vertices[index] * nx + vertices[index + 1] * ny;
+      target = findMaximum ? Math.max(target, projection) : Math.min(target, projection);
+    }
+
+    let x = 0;
+    let y = 0;
+    let count = 0;
+    for (let index = 0; index < vertices.length; index += 2) {
+      const projection = vertices[index] * nx + vertices[index + 1] * ny;
+      if (Math.abs(projection - target) > 1.5) continue;
+      x += vertices[index];
+      y += vertices[index + 1];
+      count += 1;
+    }
+    return { x: x / count, y: y / count };
+  }
+
+  function collisionContactPoint(a, b, nx, ny) {
+    const supportA = averageSupportPoint(pieceGeometry(a).vertices, nx, ny, true);
+    const supportB = averageSupportPoint(pieceGeometry(b).vertices, nx, ny, false);
+    return { x: (supportA.x + supportB.x) / 2, y: (supportA.y + supportB.y) / 2 };
   }
 
   function isFloorSupported(piece) {

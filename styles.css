@@ -226,15 +226,15 @@ button:focus-visible { outline: 2px solid #b9776a; outline-offset: 2px; }
 .collection-card { display: flex; min-height: 0; flex-direction: column; padding-bottom: 8px; }
 .collection-heading { flex: 0 0 auto; margin-bottom: 5px; }
 .collection-count { padding: 3px 6px; color: #63635e; background: var(--soft); border: 1px solid var(--border); border-radius: 5px; font: 500 .56rem "SF Mono", Consolas, monospace; }
-.collection-list { display: grid; min-height: 0; gap: 1px; margin: 0; padding: 0; overflow-y: auto; list-style: none; scrollbar-color: #d9d9d5 transparent; scrollbar-width: thin; }
-.collection-item { display: grid; min-height: 25px; grid-template-columns: 19px 25px minmax(0, 1fr) auto; align-items: center; gap: 5px; padding: 1px 5px 1px 3px; color: #777773; border-radius: 5px; transition: background-color .16s ease, color .16s ease; }
+.collection-list { display: grid; min-height: 0; flex: 1 1 auto; gap: 1px; margin: 0; padding: 0; overflow-y: auto; list-style: none; scrollbar-color: #d9d9d5 transparent; scrollbar-width: thin; }
+.collection-item { display: grid; min-height: 29px; grid-template-columns: 20px 29px minmax(0, 1fr) auto; align-items: center; gap: 5px; padding: 1px 5px 1px 3px; color: #777773; border-radius: 5px; transition: background-color .16s ease, color .16s ease; }
 .collection-item.is-current { color: #383835; background: #f4f4f1; }
 .collection-item.is-unlocked .collection-rank { color: var(--accent); }
-.collection-rank { color: #92928d; font: 500 .54rem "SF Mono", Consolas, monospace; }
-.collection-item img { width: 24px; height: 24px; object-fit: contain; }
+.collection-rank { color: #92928d; font: 500 .57rem "SF Mono", Consolas, monospace; }
+.collection-item img { width: 27px; height: 27px; object-fit: contain; }
 .collection-item:not(.is-unlocked) img { opacity: .48; filter: grayscale(.7); }
-.collection-name { overflow: hidden; font-size: .64rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.collection-state { color: #898984; font-size: .51rem; }
+.collection-name { overflow: hidden; font-size: .7rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.collection-state { color: #898984; font-size: .55rem; }
 .collection-item.is-current .collection-state { color: #675d59; }
 
 .restart-button { width: 100%; min-height: 34px; color: #444440; background: #ffffff; border-color: var(--border); }
@@ -294,9 +294,9 @@ button:focus-visible { outline: 2px solid #b9776a; outline-offset: 2px; }
   .next-avatar-wrap { width: 88px; height: 70px; }
   .next-avatar-wrap img { max-width: 70px; max-height: 70px; }
   .collection-card { min-height: 220px; }
-  .collection-item { grid-template-columns: 16px 22px minmax(0, 1fr); gap: 3px; padding-inline: 2px; }
-  .collection-item img { width: 21px; height: 21px; }
-  .collection-name { font-size: .58rem; }
+  .collection-item { min-height: 27px; grid-template-columns: 17px 24px minmax(0, 1fr); gap: 3px; padding-inline: 2px; }
+  .collection-item img { width: 23px; height: 23px; }
+  .collection-name { font-size: .61rem; }
   .collection-state { display: none; }
   .keyboard-note { font-size: .53rem; }
   .page-footer { align-items: flex-start; flex-direction: column; gap: 5px; font-size: .7rem; }

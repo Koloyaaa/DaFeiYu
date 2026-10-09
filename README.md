@@ -1,6 +1,6 @@
 # 合成大肥鱼
 
-> **版本：V2** · **[🎮 在线体验：开始游戏](https://koloyaaa.github.io/DaFeiYu/)** · 无需下载，打开即玩
+> **版本：V2.1** · **[🎮 在线体验：开始游戏](https://koloyaaa.github.io/DaFeiYu/)** · 无需下载，打开即玩
 
 一款无需安装依赖、可在浏览器中运行的合成小游戏。让十一位 AI 娘相遇、进化，最终解锁 DeepSeek（大肥鱼）。
 
