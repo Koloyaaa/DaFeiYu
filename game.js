@@ -21,10 +21,16 @@
   const SLEEP_LINEAR_SPEED = 18;
   const SLEEP_ANGULAR_SPEED = 0.08;
   const SLEEP_DELAY = 0.45;
-  const MIN_BOUNCE_SPEED = 90;
+  const MIN_BOUNCE_SPEED = 55; // Ignore soft impacts so settled stacks stay still.
+  const BOUNCE_RESTITUTION = 0.38;
+  const WALL_RESTITUTION = 0.45;
+  const SQUASH_DECAY = 9;
+  const SQUASH_MAX = 0.3;
   const CONTACT_FRICTION = 0.3;
   const COLLISION_POLYGON_SCALE = 0.96;
   const COLLISION_SLOP = 3; // Let crowded stacks overlap slightly instead of pushing apart.
+  const SLEEP_WAKE_SPEED = MIN_BOUNCE_SPEED;
+  const SLEEP_WAKE_PENETRATION = COLLISION_SLOP + 8;
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
@@ -225,6 +231,7 @@
       imageX: metrics.imageX,
       imageY: metrics.imageY,
       squash: 0,
+      squashAngle: 0,
       sleepTimer: 0,
       sleeping: false,
       dangerTime: 0,
@@ -390,15 +397,15 @@
 
   function integratePiece(piece, dt) {
     piece.mergeLock = Math.max(0, piece.mergeLock - dt);
-    piece.squash *= Math.exp(-dt * 7);
+    piece.squash *= Math.exp(-dt * SQUASH_DECAY);
     if (piece.sleeping) return;
     piece.angularVelocity *= Math.pow(0.92, dt * 60);
     if (Math.abs(piece.angularVelocity) < 0.01) piece.angularVelocity = 0;
     const nextAngle = piece.angle + piece.angularVelocity * dt;
-    if (fitsAngleInBin(piece.w, piece.h, nextAngle, pieceScale(piece))) {
+    if (fitsAngleInBin(piece.w, piece.h, nextAngle)) {
       piece.angle = nextAngle;
     } else {
-      piece.angle = fitAngleToBin(piece.w, piece.h, piece.angle, pieceScale(piece));
+      piece.angle = fitAngleToBin(piece.w, piece.h, piece.angle);
       piece.angularVelocity *= -0.28;
     }
     piece.vy = Math.min(piece.vy + GRAVITY * dt, 1250);
@@ -410,22 +417,29 @@
     let bounds = pieceSilhouetteAabb(piece);
     if (bounds.left < LEFT) {
       piece.x += LEFT - bounds.left;
-      piece.vx = Math.abs(piece.vx) * 0.48;
-      piece.angularVelocity = clamp(piece.angularVelocity + clamp(piece.vy * 0.00015, -0.04, 0.04), -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
-      piece.squash = Math.max(piece.squash, 0.12);
+      const impactSpeed = Math.abs(piece.vx);
+      piece.vx = impactSpeed > MIN_BOUNCE_SPEED ? impactSpeed * WALL_RESTITUTION : 0;
+      if (impactSpeed > MIN_BOUNCE_SPEED) {
+        piece.angularVelocity = clamp(piece.angularVelocity + clamp(piece.vy * 0.00015, -0.04, 0.04), -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+        squashPiece(piece, 1, 0, impactSpeed);
+      }
     } else if (bounds.right > RIGHT) {
       piece.x -= bounds.right - RIGHT;
-      piece.vx = -Math.abs(piece.vx) * 0.48;
-      piece.angularVelocity = clamp(piece.angularVelocity - clamp(piece.vy * 0.00015, -0.04, 0.04), -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
-      piece.squash = Math.max(piece.squash, 0.12);
+      const impactSpeed = Math.abs(piece.vx);
+      piece.vx = impactSpeed > MIN_BOUNCE_SPEED ? -impactSpeed * WALL_RESTITUTION : 0;
+      if (impactSpeed > MIN_BOUNCE_SPEED) {
+        piece.angularVelocity = clamp(piece.angularVelocity - clamp(piece.vy * 0.00015, -0.04, 0.04), -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+        squashPiece(piece, -1, 0, impactSpeed);
+      }
     }
     bounds = pieceSilhouetteAabb(piece);
     if (bounds.bottom > FLOOR) {
       piece.y -= bounds.bottom - FLOOR;
       if (piece.id === pendingDropId && piece.vy > 0) setPendingDrop(null);
-      if (piece.vy > 105) {
-        piece.vy = -piece.vy * 0.36;
-        piece.squash = Math.max(piece.squash, 0.12);
+      const impactSpeed = piece.vy;
+      if (impactSpeed > MIN_BOUNCE_SPEED) {
+        piece.vy = -piece.vy * WALL_RESTITUTION;
+        squashPiece(piece, 0, -1, impactSpeed);
         piece.angularVelocity = clamp(piece.angularVelocity + clamp(piece.vx * 0.00025, -0.08, 0.08), -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
       } else {
         piece.vy = 0;
@@ -456,8 +470,9 @@
             break;
           }
           if (a.sleeping && b.sleeping) continue;
-          if (a.sleeping) wakePiece(a);
-          if (b.sleeping) wakePiece(b);
+          const closingSpeed = -((b.vx - a.vx) * contact.nx + (b.vy - a.vy) * contact.ny);
+          if (shouldWakeFromContact(a, closingSpeed, contact)) wakePiece(a);
+          if (shouldWakeFromContact(b, closingSpeed, contact)) wakePiece(b);
           if (isPendingDropLanding(a, b)) setPendingDrop(null);
           resolveBounce(a, b, contact, iteration === 0);
         }
@@ -526,6 +541,13 @@
     piece.sleepTimer = 0;
   }
 
+  function shouldWakeFromContact(piece, closingSpeed, contact) {
+    return piece.sleeping && (
+      closingSpeed > SLEEP_WAKE_SPEED ||
+      contact.depth > SLEEP_WAKE_PENETRATION
+    );
+  }
+
   function updateSleepState(piece, dt) {
     if (piece.sleeping) return;
     const slowEnough = Math.hypot(piece.vx, piece.vy) <= SLEEP_LINEAR_SPEED &&
@@ -540,7 +562,8 @@
 
   function pieceGeometry(piece) {
     const angle = piece.angle || 0;
-    const scale = pieceScale(piece);
+    // Keep impact squash visual only; it must not change collision boundaries.
+    const scale = 1;
     const cached = geometryCache.get(piece);
     if (cached && cached.x === piece.x && cached.y === piece.y && cached.angle === angle && cached.scale === scale) {
       return cached.geometry;
@@ -643,52 +666,79 @@
     const boundsA = pieceAabb(a);
     const boundsB = pieceAabb(b);
     const depth = contact.depth - COLLISION_SLOP;
-    if (!Number.isFinite(depth) || depth <= 0) return;
+    if (!Number.isFinite(depth)) return;
 
-    const invMassA = 1 / (a.w * a.h);
-    const invMassB = 1 / (b.w * b.h);
-    const inverseTotal = invMassA + invMassB;
-    const correction = depth * 0.82;
-    a.x -= nx * correction * (invMassA / inverseTotal);
-    a.y -= ny * correction * (invMassA / inverseTotal);
-    b.x += nx * correction * (invMassB / inverseTotal);
-    b.y += ny * correction * (invMassB / inverseTotal);
+    // Sleeping pieces and pieces already supported by the floor do not move
+    // vertically when another piece presses into them.
+    const invMassA = a.sleeping ? 0 : 1 / (a.w * a.h);
+    const invMassB = b.sleeping ? 0 : 1 / (b.w * b.h);
+    const verticalResponseA = isFloorSupported(a) ? 0 : 1;
+    const verticalResponseB = isFloorSupported(b) ? 0 : 1;
+    const inverseTotal = invMassA * (nx * nx + verticalResponseA * ny * ny) +
+      invMassB * (nx * nx + verticalResponseB * ny * ny);
+    if (inverseTotal <= 1e-8) return;
+
+    if (depth > 0) {
+      const correction = depth * 0.82 / inverseTotal;
+      a.x -= nx * correction * invMassA;
+      a.y -= ny * correction * invMassA * verticalResponseA;
+      b.x += nx * correction * invMassB;
+      b.y += ny * correction * invMassB * verticalResponseB;
+    }
 
     const relativeVelocity = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
     if (applyImpulse && relativeVelocity < 0) {
-      const restitution = -relativeVelocity < MIN_BOUNCE_SPEED ? 0 : 0.16;
+      const closingSpeed = -relativeVelocity;
+      const restitution = closingSpeed <= MIN_BOUNCE_SPEED ? 0 : BOUNCE_RESTITUTION;
       const impulse = -(1 + restitution) * relativeVelocity / inverseTotal;
       const tangentVelocityX = (b.vx - a.vx) - relativeVelocity * nx;
       const tangentVelocityY = (b.vy - a.vy) - relativeVelocity * ny;
       const tangentSpeed = Math.hypot(tangentVelocityX, tangentVelocityY);
       const tangentX = tangentSpeed > 0.001 ? tangentVelocityX / tangentSpeed : 0;
       const tangentY = tangentSpeed > 0.001 ? tangentVelocityY / tangentSpeed : 0;
-      const frictionImpulse = clamp(-tangentSpeed / inverseTotal, -impulse * CONTACT_FRICTION, impulse * CONTACT_FRICTION);
+      const frictionInverseTotal = invMassA * (tangentX * tangentX + verticalResponseA * tangentY * tangentY) +
+        invMassB * (tangentX * tangentX + verticalResponseB * tangentY * tangentY);
+      const frictionImpulse = frictionInverseTotal > 1e-8
+        ? clamp(-tangentSpeed / frictionInverseTotal, -impulse * CONTACT_FRICTION, impulse * CONTACT_FRICTION)
+        : 0;
       a.vx -= impulse * invMassA * nx;
-      a.vy -= impulse * invMassA * ny;
+      a.vy -= impulse * invMassA * ny * verticalResponseA;
       b.vx += impulse * invMassB * nx;
-      b.vy += impulse * invMassB * ny;
+      b.vy += impulse * invMassB * ny * verticalResponseB;
       a.vx -= frictionImpulse * invMassA * tangentX;
-      a.vy -= frictionImpulse * invMassA * tangentY;
+      a.vy -= frictionImpulse * invMassA * tangentY * verticalResponseA;
       b.vx += frictionImpulse * invMassB * tangentX;
-      b.vy += frictionImpulse * invMassB * tangentY;
-      if (relativeVelocity < -70) {
+      b.vy += frictionImpulse * invMassB * tangentY * verticalResponseB;
+      if (closingSpeed > MIN_BOUNCE_SPEED) {
+        squashPiece(a, -nx, -ny, closingSpeed);
+        squashPiece(b, nx, ny, closingSpeed);
+      }
+      if (closingSpeed > 70) {
         const contactX = (Math.max(boundsA.left, boundsB.left) + Math.min(boundsA.right, boundsB.right)) / 2;
         const contactY = (Math.max(boundsA.top, boundsB.top) + Math.min(boundsA.bottom, boundsB.bottom)) / 2;
-        const inertiaA = (1 / invMassA) * (a.w * a.w + a.h * a.h) / 12;
-        const inertiaB = (1 / invMassB) * (b.w * b.w + b.h * b.h) / 12;
+        const inertiaA = (a.w * a.h) * (a.w * a.w + a.h * a.h) / 12;
+        const inertiaB = (b.w * b.h) * (b.w * b.w + b.h * b.h) / 12;
         const armA = (contactX - a.x) * ny - (contactY - a.y) * nx;
         const armB = (contactX - b.x) * ny - (contactY - b.y) * nx;
         const spinA = clamp(-impulse * armA / inertiaA * 0.22, -0.24, 0.24);
         const spinB = clamp(impulse * armB / inertiaB * 0.22, -0.24, 0.24);
-        a.angularVelocity = clamp(a.angularVelocity + spinA, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
-        b.angularVelocity = clamp(b.angularVelocity + spinB, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+        if (!a.sleeping) a.angularVelocity = clamp(a.angularVelocity + spinA, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+        if (!b.sleeping) b.angularVelocity = clamp(b.angularVelocity + spinB, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
       }
-      a.squash = Math.max(a.squash, 0.1);
-      b.squash = Math.max(b.squash, 0.1);
     }
     clampPieceToBin(a);
     clampPieceToBin(b);
+  }
+
+  function isFloorSupported(piece) {
+    return piece.vy >= -0.1 && pieceSilhouetteAabb(piece).bottom >= FLOOR - 0.5;
+  }
+
+  function squashPiece(piece, nx, ny, speed) {
+    const amount = Math.min(SQUASH_MAX, speed / 1500);
+    if (amount <= piece.squash) return;
+    piece.squash = amount;
+    piece.squashAngle = Math.atan2(ny, nx);
   }
 
   function clampPieceToBin(piece) {
@@ -698,11 +748,6 @@
     if (bounds.right > RIGHT) piece.x -= bounds.right - RIGHT;
     bounds = pieceSilhouetteAabb(piece);
     if (bounds.bottom > FLOOR) piece.y -= bounds.bottom - FLOOR;
-  }
-
-  function pieceScale(piece) {
-    // Keep impact animation springy without compressing the artwork vertically.
-    return 1 + Math.max(0, piece.squash || 0) * 0.08;
   }
 
   function rotatedExtents(width, height, angle, scale = 1) {
@@ -846,15 +891,20 @@
 
   }
 
-  function drawAvatar(x, y, level, metrics, alpha = 1, squash = 0, angle = 0) {
+  function drawAvatar(x, y, level, metrics, alpha = 1, squash = 0, angle = 0, squashAngle = 0) {
     const stage = stages[level];
     if (!stage.image.complete || !stage.image.naturalWidth) return;
     context.save();
     context.translate(x, y);
     context.rotate(angle);
     context.globalAlpha = alpha;
-    const impactScale = 1 + Math.max(0, squash) * 0.08;
-    context.scale(impactScale, impactScale);
+    const impactSquash = clamp(squash, 0, SQUASH_MAX);
+    if (impactSquash > 0.004) {
+      const relativeSquashAngle = squashAngle - angle;
+      context.rotate(relativeSquashAngle);
+      context.scale(1 - impactSquash, 1 + impactSquash * 0.85);
+      context.rotate(-relativeSquashAngle);
+    }
     context.shadowColor = "rgb(48 88 76 / 22%)";
     context.shadowBlur = Math.min(8, metrics.diameter * 0.11);
     context.shadowOffsetY = 2;
@@ -888,7 +938,7 @@
     drawAvatar(aimXClamped, previewY, currentLevel, previewMetrics, pendingDropId === null ? 0.78 : 0.38, 0, 0);
 
     pieces.slice().sort((a, b) => a.y - b.y).forEach((piece) => {
-      drawAvatar(piece.x, piece.y, piece.level, piece, 1, piece.squash, piece.angle);
+      drawAvatar(piece.x, piece.y, piece.level, piece, 1, piece.squash, piece.angle, piece.squashAngle);
     });
     for (const particle of particles) {
       context.save();
