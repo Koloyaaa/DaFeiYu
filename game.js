@@ -565,8 +565,37 @@
   }
 
   function wakePiece(piece) {
+    if (!piece.sleeping) return;
     piece.sleeping = false;
     piece.sleepTimer = 0;
+    wakeSupportedPieces(piece);
+  }
+
+  function wakeSupportedPieces(support) {
+    const supports = [support];
+    const visited = new Set([support.id]);
+
+    while (supports.length > 0) {
+      const current = supports.pop();
+      const currentGeometry = pieceGeometry(current);
+      for (const candidate of pieces) {
+        if (candidate.sleeping === false || visited.has(candidate.id)) continue;
+        const candidateGeometry = pieceGeometry(candidate);
+        if (!aabbsWithinDistance(candidateGeometry.bounds, currentGeometry.bounds, COLLISION_SLOP + 2)) continue;
+        const contact = polygonPenetration(
+          candidateGeometry.vertices,
+          currentGeometry.vertices,
+          candidate.id,
+          current.id,
+        );
+        if (!contact || contact.ny <= 0.15) continue;
+
+        candidate.sleeping = false;
+        candidate.sleepTimer = 0;
+        visited.add(candidate.id);
+        supports.push(candidate);
+      }
+    }
   }
 
   function shouldWakeFromContact(piece, closingSpeed, contact) {
@@ -601,7 +630,7 @@
     let supportNormalY = 0;
     const vertices = pieceGeometry(piece).vertices;
     for (const support of pieces) {
-      if (support.id === piece.id) continue;
+      if (support.id === piece.id || !support.sleeping) continue;
       const supportGeometry = pieceGeometry(support);
       if (!aabbsWithinDistance(bounds, supportGeometry.bounds, COLLISION_SLOP + 2)) continue;
       const contact = polygonPenetration(vertices, supportGeometry.vertices, piece.id, support.id);
@@ -927,6 +956,11 @@
   }
 
   function mergeCharacters(a, b) {
+    // A merge removes both supports; wake any sleepers stacked above them
+    // before their geometry disappears, including higher pieces in the stack.
+    wakeSupportedPieces(a);
+    wakeSupportedPieces(b);
+
     const weightA = a.w * a.h;
     const weightB = b.w * b.h;
     const x = (a.x * weightA + b.x * weightB) / (weightA + weightB);
