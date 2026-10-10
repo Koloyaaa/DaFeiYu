@@ -549,7 +549,8 @@
   function metricsFor(level) {
     const stage = stages[level];
     const bounds = stage.collision.bounds;
-    const diameter = BASE_SIZE * 0.75 * CHARACTER_SIZE_SCALE * sizeMultiplierByLevel[level];
+    const characterScale = stage.id === "豆包" ? 0.85 : 1;
+    const diameter = BASE_SIZE * 0.75 * CHARACTER_SIZE_SCALE * sizeMultiplierByLevel[level] * characterScale;
     const widestFraction = Math.max(bounds.width, bounds.height);
     const imageSize = diameter / widestFraction;
     return {
@@ -574,7 +575,8 @@
     });
 
     const upcoming = stages[nextLevel];
-    const previewSize = Math.min(108, Math.max(60, metricsFor(nextLevel).diameter * 1.52));
+    const previewScale = stages[nextLevel].id === "豆包" ? 0.85 : 1;
+    const previewSize = Math.min(108, Math.max(60, metricsFor(nextLevel).diameter * 1.52)) * previewScale;
     nextImage.src = upcoming.src;
     nextImage.style.width = `${previewSize}px`;
     nextImage.style.height = `${previewSize}px`;
