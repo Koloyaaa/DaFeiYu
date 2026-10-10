@@ -3,6 +3,10 @@
 **版本：V3.1**
 
 一款在浏览器中游玩的合成游戏。把相同角色合在一起，一路进化，合成大肥鱼！
+- [开始游戏](https://koloyaaa.github.io/DaFeiYu/)
+- [反馈问题](https://github.com/Koloyaaa/DaFeiYu/issues)
+- [关注作者 LéoWEE](https://github.com/Koloyaaa)
+- [给游戏仓库点 Star](https://github.com/Koloyaaa/DaFeiYu)
 
 ## 游戏画面
 
@@ -11,11 +15,6 @@
 ![首次合成至尊角色的庆祝弹窗](docs/achievement-screenshot.png)
 
 ![游戏结束与本局成绩](docs/game-over-screenshot.png)
-
-- [开始游戏](https://koloyaaa.github.io/DaFeiYu/)
-- [反馈问题](https://github.com/Koloyaaa/DaFeiYu/issues)
-- [关注作者 LéoWEE](https://github.com/Koloyaaa)
-- [给游戏仓库点 Star](https://github.com/Koloyaaa/DaFeiYu)
 
 ## 玩法
 
