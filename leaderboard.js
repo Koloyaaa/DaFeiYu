@@ -3,6 +3,7 @@
 
   const manifest = window.FISH_ASSET_MANIFEST;
   const profileKey = "big-fish-leaderboard-profile";
+  const pendingProfileNameKey = "big-fish-leaderboard-pending-profile-name-v1";
   const stagesBySrc = new Map(manifest.assets.map((asset) => [asset.src, asset]));
   const defaultAvatar = manifest.assets.find((asset) => asset.id === "DeepSeek").src;
   const list = document.getElementById("leaderboard-list");
@@ -22,6 +23,7 @@
   const profileEdit = document.getElementById("leaderboard-profile-edit");
   let board = [];
   let profile = readProfile();
+  let pendingProfileName = readPendingProfileName();
 
   function cleanName(value) {
     return Array.from(String(value || "").trim().replace(/[\u0000-\u001f\u007f-\u009f]/g, ""))
@@ -37,11 +39,26 @@
     };
   }
 
+  function readPendingProfileName() {
+    try { return cleanName(window.localStorage.getItem(pendingProfileNameKey) || ""); } catch (_) { return ""; }
+  }
+
+  function persistPendingProfileName() {
+    try {
+      if (pendingProfileName) window.localStorage.setItem(pendingProfileNameKey, pendingProfileName);
+      else window.localStorage.removeItem(pendingProfileNameKey);
+    } catch (_) { /* profile sync can be retried after the next profile edit */ }
+  }
+
   function isProfileReady() {
     return Boolean(profile.name && stagesBySrc.has(profile.avatar));
   }
 
   function saveProfile(nextProfile) {
+    if (profile.name && (profile.name !== nextProfile.name || profile.avatar !== nextProfile.avatar) && !pendingProfileName) {
+      pendingProfileName = profile.name;
+      persistPendingProfileName();
+    }
     profile = nextProfile;
     try { window.localStorage.setItem(profileKey, JSON.stringify(profile)); } catch (_) { /* local profile is optional */ }
     renderProfile();
@@ -184,10 +201,58 @@
       board = cleanBoard(await request(`leaderboard?${params.toString()}`));
       status.textContent = `已读取 ${board.length} 条成绩（最多显示 20 名）`;
       renderBoard();
+      if (pendingProfileName) await syncPendingProfileUpdate();
       return board;
     } catch (_) {
       status.textContent = "排行榜暂时无法连接，请稍后重试。";
       return null;
+    }
+  }
+
+  async function syncPendingProfileUpdate() {
+    const previousName = cleanName(pendingProfileName);
+    if (!previousName || !isProfileReady()) return;
+
+    const previousKey = previousName.toLocaleLowerCase("zh-CN");
+    const currentKey = profile.name.toLocaleLowerCase("zh-CN");
+    const previousEntry = board.find((entry) => entry.name.toLocaleLowerCase("zh-CN") === previousKey);
+    if (!previousEntry) {
+      pendingProfileName = "";
+      persistPendingProfileName();
+      status.textContent = "名片已保存在本机；你当前没有全球榜单成绩需要同步。";
+      return;
+    }
+
+    const nameConflict = currentKey !== previousKey
+      && board.some((entry) => entry.name.toLocaleLowerCase("zh-CN") === currentKey);
+    if (nameConflict) {
+      status.textContent = "名片已保存在本机；这个昵称已被榜单中的其他玩家使用，请换一个昵称后重试。";
+      return;
+    }
+
+    try {
+      const updated = await request("rpc/update_leaderboard_profile", {
+        method: "POST",
+        body: JSON.stringify({
+          p_previous_name: previousName,
+          p_name: profile.name,
+          p_avatar: profile.avatar,
+        }),
+      });
+      if (!updated) {
+        status.textContent = "名片已保存在本机；排行榜资料暂未同步，打开排行榜时会重试。";
+        return;
+      }
+
+      board = board.map((entry) => entry.name.toLocaleLowerCase("zh-CN") === previousKey
+        ? { ...entry, name: profile.name, avatar: profile.avatar }
+        : entry);
+      pendingProfileName = "";
+      persistPendingProfileName();
+      renderBoard();
+      status.textContent = "排行榜中的昵称和头像已更新。";
+    } catch (_) {
+      status.textContent = "名片已保存在本机；排行榜资料暂未同步，连接恢复后会重试。";
     }
   }
 
@@ -253,7 +318,7 @@
   });
   profileNameInput.addEventListener("input", () => { profileNameInput.setCustomValidity(""); });
   setupNameInput.addEventListener("input", () => { setupNameInput.setCustomValidity(""); });
-  profileForm.addEventListener("submit", (event) => {
+  profileForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const name = cleanName(profileNameInput.value);
     if (!name) {
@@ -262,15 +327,22 @@
       return;
     }
     profileNameInput.setCustomValidity("");
-    saveProfile({ name, avatar: stagesBySrc.has(avatarChoice.value) ? avatarChoice.value : defaultAvatar });
+    const nextProfile = { name, avatar: stagesBySrc.has(avatarChoice.value) ? avatarChoice.value : defaultAvatar };
+    const needsSync = Boolean(profile.name && (profile.name !== nextProfile.name || profile.avatar !== nextProfile.avatar));
+    saveProfile(nextProfile);
     profileForm.hidden = true;
     profileEdit.setAttribute("aria-expanded", "false");
     renderBoard();
-    status.textContent = "名片已保存在当前浏览器。";
+    if (needsSync) {
+      const latestBoard = await refreshBoard();
+      if (latestBoard === null) status.textContent = "名片已保存在本机；排行榜暂时无法连接，稍后打开排行榜会重试。";
+    } else {
+      status.textContent = "名片已保存在当前浏览器。";
+    }
   });
 
   setupDialog.addEventListener("cancel", (event) => event.preventDefault());
-  setupForm.addEventListener("submit", (event) => {
+  setupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const name = cleanName(setupNameInput.value);
     if (!name) {
@@ -285,9 +357,11 @@
       return;
     }
     setupAvatarChoice.setCustomValidity("");
+    const needsSync = Boolean(profile.name && (profile.name !== name || profile.avatar !== avatar));
     saveProfile({ name, avatar });
     setupDialog.close();
     document.getElementById("game").focus({ preventScroll: true });
+    if (needsSync) await refreshBoard();
   });
 
   initializeAvatarChoices(avatarChoice);

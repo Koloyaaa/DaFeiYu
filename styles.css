@@ -118,6 +118,23 @@ button { font: inherit; }
   grid-column: 1 / -1;
   grid-row: 1;
 }
+.topbar-message {
+  display: flex;
+  width: min(60%, 640px);
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  margin: 0 0 0 auto;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.topbar-message-text { min-width: 0; overflow: hidden; text-align: right; white-space: nowrap; }
+.topbar-message-caret { width: 1px; height: 1em; flex: 0 0 auto; background: var(--accent); animation: message-caret-blink 1s steps(2, start) infinite; }
+@keyframes message-caret-blink { to { visibility: hidden; } }
+.topbar-message .sr-only { position: absolute; }
 
 .utility-sidebar {
   position: relative;
@@ -378,6 +395,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .result-stats strong { font: 500 1.1rem "SF Mono", Consolas, monospace; }
 .result-dialog .primary-button { width: 100%; }
 .result-dialog .primary-button + .primary-button { margin-top: 8px; }
+.result-dialog .screenshot-button { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.screenshot-button-icon { display: inline-flex; align-items: center; justify-content: center; font-size: .88em; }
+.result-dialog .screenshot-status { margin: 8px auto 10px; color: var(--muted); font-size: .7rem; }
+.result-dialog .screenshot-status[hidden] { display: none; }
 .result-avatar { display: block; width: 104px; height: 104px; margin: 4px auto 9px; object-fit: contain; filter: drop-shadow(0 3px 3px rgb(25 70 115 / 9%)); }
 .result-avatar[hidden] { display: none; }
 .result-leaderboard-status { margin: -6px 0 14px !important; color: var(--accent) !important; font-weight: 650; }
@@ -399,7 +420,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .achievement-dialog::backdrop { background: rgb(24 39 53 / 43%); backdrop-filter: blur(3px); }
 .achievement-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(190px, .85fr); align-items: center; gap: 18px; padding: 27px; }
 .achievement-copy-column { min-width: 0; }
-.achievement-kicker { display: flex; align-items: center; gap: 8px; margin: 0 0 20px; color: #657484; font: 600 .67rem/1.4 "SF Mono", Consolas, monospace; letter-spacing: .035em; }
+.achievement-kicker { display: flex; align-items: center; grid-column: 1 / -1; gap: 8px; margin: 0; color: #657484; font: 600 .67rem/1.4 "SF Mono", Consolas, monospace; letter-spacing: .035em; }
 .achievement-pulse { width: 8px; height: 8px; flex: 0 0 auto; background: #64a386; border-radius: 50%; box-shadow: 0 0 0 4px rgb(100 163 134 / 13%); }
 .achievement-tier { display: inline-flex; margin: 0 0 9px; padding: 5px 9px; color: #705b13; background: #fff5cd; border: 1px solid #eee0a5; border-radius: 999px; font-size: .67rem; font-weight: 700; }
 .achievement-title, .achievement-dialog h2 { margin: 0; color: #202d39; font-size: clamp(1.25rem, 4vw, 1.65rem); font-weight: 650; letter-spacing: -.035em; line-height: 1.35; overflow-wrap: anywhere; }
@@ -421,6 +442,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   border-radius: 10px;
   white-space: normal;
 }
+.leaderboard-main-dialog { overflow: hidden; padding: 0; }
+.leaderboard-main-dialog[open] { display: flex; flex-direction: column; }
+.leaderboard-main-dialog .leaderboard-header { flex: 0 0 auto; padding: 20px 20px 12px; background: var(--surface); }
+.leaderboard-scroll-content { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: 0 20px 20px; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .leaderboard-dialog::backdrop { background: rgb(24 52 81 / 38%); }
 .rules-dialog { width: min(560px, calc(100% - 28px)); }
 .rules-content { display: grid; gap: 15px; margin-top: 15px; }
@@ -451,7 +476,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .leaderboard-profile-actions .primary-button { min-height: 34px; }
 .leaderboard-note { margin: 4px 0 0; color: var(--muted); font-size: .63rem; line-height: 1.45; }
 .leaderboard-status { min-height: 1.2em; margin: 12px 0 6px; color: var(--muted); font-size: .68rem; }
-.leaderboard-list { display: grid; gap: 4px; max-height: 390px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.leaderboard-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .leaderboard-row { display: grid; min-height: 44px; grid-template-columns: 28px 38px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 4px 8px; background: #ffffff; border: 1px solid #e4edf7; border-radius: 6px; }
 .leaderboard-row.is-local { background: var(--accent-wash); border-color: #b6d5f5; }
 .leaderboard-rank { color: var(--muted); font: 600 .7rem "SF Mono", Consolas, monospace; text-align: center; }
@@ -467,6 +492,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .profile-setup-submit { width: 100%; margin-top: 10px; }
 
 @media (max-width: 900px) {
+  .topbar-message { display: none; }
   .app-shell {
     width: min(800px, calc(100% - 28px));
     grid-template-columns: minmax(0, 1fr);
@@ -519,9 +545,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .next-card { grid-column: 1; grid-row: 3; }
   .collection-card { grid-column: 2; grid-row: 3; min-height: 230px; }
   .achievement-layout { grid-template-columns: minmax(0, 1fr) minmax(150px, .7fr); gap: 12px; padding: 22px; }
-  .achievement-kicker { margin-bottom: 14px; font-size: .58rem; }
+  .achievement-kicker { grid-row: 1; margin: 0; font-size: .58rem; }
   .achievement-art { padding: 8px; }
   .achievement-art img { width: min(100%, 170px); }
+  .achievement-art { grid-column: 2; grid-row: 2; }
+  .achievement-copy-column { grid-column: 1; grid-row: 2; }
 }
 
 @media (max-width: 480px) {
@@ -560,10 +588,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .footer-credit { gap: 4px; }
   .footer-links { gap: 10px; }
   .achievement-layout { grid-template-columns: 1fr; gap: 13px; padding: 19px; }
-  .achievement-art { width: min(100%, 235px); margin: 0 auto; grid-row: 1; }
+  .achievement-art { width: min(100%, 235px); margin: 0 auto; grid-column: 1; grid-row: 2; }
   .achievement-art img { width: 100%; }
-  .achievement-copy-column { grid-row: 2; }
-  .achievement-kicker { margin-bottom: 12px; }
+  .achievement-copy-column { grid-column: 1; grid-row: 3; }
   .achievement-copy { margin-bottom: 15px; }
   .achievement-continue { width: 100%; }
   .achievement-creator-links { gap: 8px 12px; padding: 11px 12px 13px; font-size: .62rem; }

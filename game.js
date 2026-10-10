@@ -12,7 +12,8 @@
   const DANGER_LINE = 118;
   const DROP_Y = 66;
   const DROP_INTERVAL = 0.35;
-  const HAMMER_COST = 1000;
+  const HAMMER_COST = 2000;
+  const HAMMER_COST_LABEL = HAMMER_COST.toLocaleString("zh-CN");
   const BASE_HAMMER_USES = 3;
   const HAMMER_USES_PER_REVIVE = 2;
   const ITEMS_STORAGE_KEY = "big-fish-items-v1";
@@ -26,7 +27,7 @@
   const PHYSICS_SUBSTEPS = 3;
   const POSITION_ITERATIONS = 4;
   const MAX_ANGULAR_SPEED = 0.72;
-  const STARTER_WEIGHTS = [35, 24, 16, 11, 8, 6];
+  const STARTER_WEIGHTS = [40, 25, 16, 10, 6, 3];
   const SLEEP_LINEAR_SPEED = 18;
   const SLEEP_ANGULAR_SPEED = 0.08;
   const SLEEP_DELAY = 0.45;
@@ -209,7 +210,7 @@
         : details.saved
           ? "大肥鱼已加入图鉴；再合成一条即可获得复活卡。关闭后游戏继续。"
           : "大肥鱼合成成功，但本地道具进度没有保存。关闭后游戏继续。"
-      : "新角色已经加入图鉴。深度思考（用时10秒），关闭弹窗后本局会从当前局面继续。";
+      : "新角色已经加入图鉴。关闭弹窗后，本局会从当前局面继续。";
     announcer.textContent = achievementTitle.textContent;
     if (!achievementDialog.open && typeof achievementDialog.showModal === "function") {
       achievementDialog.showModal();
@@ -301,7 +302,7 @@
     const profileReady = window.FishLeaderboard && window.FishLeaderboard.isProfileReady();
     hammerButtonNote.textContent = hammerTargeting
       ? `瞄准中 · ${hammersUsed} / ${hammerLimit}`
-      : `已用 ${hammersUsed} / ${hammerLimit} · 1000 积分`;
+      : `已用 ${hammersUsed} / ${hammerLimit} · ${HAMMER_COST_LABEL} 积分`;
     hammerButton.classList.toggle("is-selected", hammerTargeting);
     hammerButton.setAttribute("aria-pressed", String(hammerTargeting));
     hammerButton.disabled = !assetsReady
@@ -338,8 +339,8 @@
     const percent = Math.round((completed / total) * 100);
     assetProgress.style.width = `${percent}%`;
     assetProgress.parentElement.setAttribute("aria-valuenow", String(percent));
-    assetLoadingCount.textContent = `准备进度：${percent}%（${completed}/${total}）`;
-    assetLoadingTitle.textContent = completed === total ? "准备完成" : "正在准备游戏";
+    assetLoadingCount.textContent = `干饭进度：${percent}%（${completed}/${total}）`;
+    assetLoadingTitle.textContent = completed === total ? "准备完成" : "正在干饭";
   }
 
   function cacheBustedUrl(source, label) {
@@ -372,6 +373,23 @@
       image.addEventListener("error", onError, { once: true });
       if (image.complete) queueMicrotask(() => finish(image.naturalWidth > 0));
     });
+  }
+
+  async function loadImageWithRetry(image, source, label, refreshFirst = false) {
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      image.src = refreshFirst || attempt > 0
+        ? cacheBustedUrl(source, `${label}-${attempt}`)
+        : source;
+      try {
+        await waitForImage(image);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350));
+      }
+    }
+    throw lastError || new Error("图片加载失败");
   }
 
   function waitForFontStylesheet(retry) {
@@ -441,14 +459,12 @@
     assetsReady = false;
     assetLoader.hidden = false;
     assetRetryButton.hidden = true;
-    assetLoadingMessage.textContent = "正在加载角色图片和图标，并连接全球排行榜……";
+    assetLoadingTitle.textContent = "正在干饭";
+    assetLoadingMessage.textContent = "大肥鱼正在偷吃用户的白饭，吃完这碗就来玩！";
 
     const tasks = targets.map(async (stage) => {
       try {
-        stage.image.src = retryFailedOnly
-          ? cacheBustedUrl(stage.src, stage.index)
-          : stage.src;
-        await waitForImage(stage.image);
+        await loadImageWithRetry(stage.image, stage.src, stage.index, retryFailedOnly);
         stage.loadFailed = false;
         loadedStageIds.add(stage.id);
       } catch (_) {
@@ -462,10 +478,7 @@
     if (!startupState.loaderImage) {
       tasks.push((async () => {
         try {
-          if (retryFailedOnly && loaderCharacter.complete && !loaderCharacter.naturalWidth) {
-            loaderCharacter.src = cacheBustedUrl(loaderCharacter.src, "loader");
-          }
-          await waitForImage(loaderCharacter);
+          await loadImageWithRetry(loaderCharacter, loaderCharacter.getAttribute("src"), "loader", retryFailedOnly);
           startupState.loaderImage = true;
         } catch (_) {
           failures.push("加载页插画");
@@ -702,7 +715,7 @@
     hammerAimY = clamp(hammerAimY, 24, FLOOR - 12);
     updateTouchInstructions();
     updateInterface();
-    setItemStatus("重锤已就绪：点一个角色砸掉；Esc 可取消。命中后才扣 1000 分。");
+    setItemStatus(`重锤已就绪：点一个角色砸掉；Esc 可取消。命中后才扣 ${HAMMER_COST_LABEL} 分。`);
     canvas.focus({ preventScroll: true });
     draw();
   }
@@ -748,7 +761,7 @@
     hammerTargeting = false;
     updateTouchInstructions();
     updateInterface();
-    setItemStatus(`重锤砸掉了 ${stages[target.level].id}，扣除 1000 分。`);
+    setItemStatus(`重锤砸掉了 ${stages[target.level].id}，扣除 ${HAMMER_COST_LABEL} 分。`);
     announcer.textContent = `重锤砸掉了 ${stages[target.level].id}。`;
     showToast(`重锤命中：${stages[target.level].id}`);
     if (!runIntegrityIsValid()) runIntegrityCompromised = true;
@@ -949,7 +962,7 @@
     updateItemInterface();
     setItemStatus(itemStorageCompromised
       ? "本地道具存档校验失败，道具已停用。"
-      : "消耗 1000 本局积分换重锤，选中后点一个角色。");
+      : `消耗 ${HAMMER_COST_LABEL} 本局积分换重锤，选中后点一个角色。`);
     announcer.textContent = "新的一局开始";
     draw();
   }
