@@ -17,7 +17,8 @@
   const BASE_HAMMER_USES = 3;
   const HAMMER_USES_PER_REVIVE = 2;
   const ITEMS_STORAGE_KEY = "big-fish-items-v1";
-  const ACHIEVEMENTS_STORAGE_KEY = "big-fish-achievements-v1";
+  const COMBO_WINDOW_MS = 350;
+  const COMBO_BONUS_RATE = 0.1;
   const GRAVITY = 1450;
   const BASE_SIZE = 45;
   const CHARACTER_SIZE_SCALE = 1;
@@ -93,6 +94,7 @@
   const achievementTitle = document.getElementById("achievement-title");
   const achievementCopy = document.getElementById("achievement-copy");
   const achievementAvatar = document.getElementById("achievement-avatar");
+  const achievementCaption = document.getElementById("achievement-caption");
   const achievementContinue = document.getElementById("achievement-continue");
   const hammerButton = document.getElementById("hammer-button");
   const hammerButtonNote = document.getElementById("hammer-button-note");
@@ -126,7 +128,13 @@
   let scoreSubmissionStarted = false;
   let itemStorageCompromised = false;
   let itemState = loadItemState();
-  let seenAchievements = loadSeenAchievements();
+  let celebratedStagesThisGame = new Set();
+  let comboCount = 0;
+  let comboBasePoints = 0;
+  let comboAwardedBonus = 0;
+  let comboLastMergeAt = -Infinity;
+  let pendingComboToast = null;
+  let pendingResultComboToast = null;
   let hammersUsed = 0;
   let revivalsUsedThisGame = 0;
   let hammerTargeting = false;
@@ -164,17 +172,6 @@
     }
   }
 
-  function loadSeenAchievements() {
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(ACHIEVEMENTS_STORAGE_KEY) || "[]");
-      if (!Array.isArray(parsed)) return new Set();
-      const stageIds = new Set(stages.map((stage) => stage.id));
-      return new Set(parsed.filter((id) => typeof id === "string" && stageIds.has(id)));
-    } catch (_) {
-      return new Set();
-    }
-  }
-
   function tierForLevel(level) {
     if (level < 4) return "bronze";
     if (level < 8) return "silver";
@@ -190,20 +187,17 @@
     const tier = tierForLevel(level);
     if (tier !== "gold" && tier !== "supreme") return false;
     const stage = stages[level];
-    if (seenAchievements.has(stage.id)) return false;
+    if (celebratedStagesThisGame.has(stage.id)) return false;
 
-    seenAchievements.add(stage.id);
-    try {
-      window.localStorage.setItem(ACHIEVEMENTS_STORAGE_KEY, JSON.stringify([...seenAchievements]));
-    } catch (_) {
-      // Keep the once-per-browser-session behavior when storage is unavailable.
-    }
+    celebratedStagesThisGame.add(stage.id);
 
-    achievementTier.textContent = `${tierLabel(tier)}角色 · 首次解锁`;
+    achievementTier.textContent = `${tierLabel(tier)}角色 · 本局首次合成`;
     achievementTitle.textContent = tier === "supreme"
       ? "恭喜用户合成出了至尊角色——大肥鱼"
       : `恭喜用户合成出了黄金角色——${stage.id}`;
-    achievementAvatar.src = "Assets/illustrations/big-fish-eating-rice.webp";
+    achievementAvatar.src = stage.src;
+    achievementAvatar.alt = `${stage.id}头像`;
+    achievementCaption.textContent = `${stage.id} · ${tierLabel(tier)}角色`;
     achievementCopy.textContent = tier === "supreme"
       ? details.earnsCard
         ? `两条大肥鱼合成了 1 张复活卡；当前共有 ${itemState.reviveCards} 张。关闭后游戏继续。`
@@ -394,7 +388,7 @@
 
   function waitForFontStylesheet(retry) {
     if (!fontAwesomeLink) return Promise.reject(new Error("找不到 Font Awesome 样式"));
-    if (!retry && (fontAwesomeLink.dataset.loadState === "loaded" || fontAwesomeLink.sheet)) {
+    if (!retry && fontAwesomeLink.dataset.loadState === "loaded") {
       return Promise.resolve();
     }
     if (!retry && fontAwesomeLink.dataset.loadState === "error") {
@@ -424,7 +418,7 @@
         url.searchParams.set("reload", String(Date.now()));
         fontAwesomeLink.dataset.loadState = "loading";
         fontAwesomeLink.href = url.href;
-      } else if (fontAwesomeLink.dataset.loadState === "loaded" || fontAwesomeLink.sheet) {
+      } else if (fontAwesomeLink.dataset.loadState === "loaded") {
         finish(true);
       } else if (fontAwesomeLink.dataset.loadState === "error") {
         finish(false);
@@ -882,7 +876,6 @@
   document.getElementById("restart-button").addEventListener("click", restart);
   document.getElementById("dialog-restart").addEventListener("click", () => {
     if (gameOver) submitFinalScore();
-    if (dialog.open) dialog.close();
     restart();
     canvas.focus({ preventScroll: true });
   });
@@ -890,8 +883,20 @@
     if (achievementDialog.open) achievementDialog.close();
   });
   achievementDialog.addEventListener("close", () => {
+    if (pendingComboToast) {
+      const combo = pendingComboToast;
+      pendingComboToast = null;
+      if (gameOver) pendingResultComboToast = combo;
+      else showComboToast(combo.count, combo.totalBonus, combo.stageName);
+    }
     if (gameOver && !dialog.open && typeof dialog.showModal === "function") dialog.showModal();
     else if (!gameOver) canvas.focus({ preventScroll: true });
+  });
+  dialog.addEventListener("close", () => {
+    if (!pendingResultComboToast) return;
+    const combo = pendingResultComboToast;
+    pendingResultComboToast = null;
+    showComboToast(combo.count, combo.totalBonus, combo.stageName);
   });
   hammerButton.addEventListener("click", beginHammerTargeting);
   reviveButton.addEventListener("click", reviveRun);
@@ -933,6 +938,12 @@
 
   function restart() {
     if (achievementDialog.open) achievementDialog.close();
+    celebratedStagesThisGame.clear();
+    comboCount = 0;
+    comboBasePoints = 0;
+    comboAwardedBonus = 0;
+    comboLastMergeAt = -Infinity;
+    pendingComboToast = null;
     pieces = [];
     particles = [];
     score = 0;
@@ -954,8 +965,8 @@
     simulationTime = 0;
     lastDropAt = -Infinity;
     updateInterface();
-    if (dialog.open) dialog.close();
     toast.hidden = true;
+    if (dialog.open) dialog.close();
     resultAvatar.hidden = true;
     resultLeaderboardStatus.hidden = true;
     updateTouchInstructions();
@@ -1551,8 +1562,9 @@
     pieces = pieces.filter((piece) => piece.id !== a.id && piece.id !== b.id);
     const newLevel = Math.min(a.level + 1, stages.length - 1);
     const pointsEarned = (newLevel + 1) * 10;
-    scoreEarned += pointsEarned;
-    score += pointsEarned;
+    const combo = trackMergeCombo(pointsEarned);
+    scoreEarned += pointsEarned + combo.bonusAdded;
+    score += pointsEarned + combo.bonusAdded;
     record = Math.max(record, score);
     try { window.localStorage.setItem("big-fish-record", String(record)); } catch (_) { /* local scores are optional */ }
     emitMerge(x, y, newLevel);
@@ -1565,8 +1577,34 @@
     highestLevel = Math.max(highestLevel, newLevel);
     updateInterface();
     announcer.textContent = `合成：${stages[newLevel].id}`;
-    if (newLevel === stages.length - 1) recordBigFishCreated();
-    else showAchievement(newLevel);
+    const achievementShown = newLevel === stages.length - 1
+      ? recordBigFishCreated()
+      : showAchievement(newLevel);
+    if (combo.count >= 3) {
+      const comboToastState = { count: combo.count, totalBonus: combo.totalBonus, stageName: stages[newLevel].id };
+      if (achievementShown && achievementDialog.open) pendingComboToast = comboToastState;
+      else showComboToast(comboToastState.count, comboToastState.totalBonus, comboToastState.stageName);
+    }
+  }
+
+  function trackMergeCombo(pointsEarned) {
+    const now = performance.now();
+    if (now - comboLastMergeAt > COMBO_WINDOW_MS) {
+      comboCount = 0;
+      comboBasePoints = 0;
+      comboAwardedBonus = 0;
+    }
+
+    comboCount += 1;
+    comboBasePoints += pointsEarned;
+    comboLastMergeAt = now;
+
+    if (comboCount < 3) return { count: comboCount, bonusAdded: 0, totalBonus: 0 };
+
+    const totalBonus = Math.floor(comboBasePoints * COMBO_BONUS_RATE);
+    const bonusAdded = totalBonus - comboAwardedBonus;
+    comboAwardedBonus = totalBonus;
+    return { count: comboCount, bonusAdded, totalBonus };
   }
 
   function emitMerge(x, y, newLevel) {
@@ -1594,6 +1632,13 @@
     toastTimer = window.setTimeout(() => { toast.hidden = true; }, 1100);
   }
 
+  function showComboToast(count, totalBonus, stageName) {
+    toast.textContent = `恭喜用户完成 ${count} 连消除！\n合成 ${stageName} · 本轮连消加成 +${totalBonus} 积分`;
+    toast.hidden = false;
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { toast.hidden = true; }, 1600);
+  }
+
   function recordBigFishCreated() {
     const earnsCard = itemState.bigFishProgress === 1;
     const nextState = {
@@ -1602,14 +1647,13 @@
     };
     if (!saveItemState(nextState)) {
       setItemStatus("大肥鱼合成成功，但本机无法保存道具进度；请检查浏览器存储空间。");
-      showAchievement(stages.length - 1, { saved: false, earnsCard: false });
-      return;
+      return showAchievement(stages.length - 1, { saved: false, earnsCard: false });
     }
     updateItemInterface();
     setItemStatus(earnsCard
       ? `两条大肥鱼已合成，获得复活卡 ×1（当前 ${itemState.reviveCards} 张）。`
       : "大肥鱼进度 1 / 2；再合成一条即可获得复活卡。");
-    showAchievement(stages.length - 1, { saved: true, earnsCard });
+    return showAchievement(stages.length - 1, { saved: true, earnsCard });
   }
 
   function finishGame() {

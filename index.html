@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#f1f6fa" />
     <title>合成大肥鱼 V3</title>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+    <link rel="preconnect" href="https://ibonjsoggostfzwwtudp.supabase.co" crossorigin />
     <link rel="icon" type="image/webp" href="Assets/processed/DeepSeek.webp?v=2" />
     <link rel="preload" as="image" href="Assets/illustrations/big-fish-eating-rice.webp" type="image/webp" fetchpriority="high" />
     <script>
@@ -21,7 +22,12 @@
       }
     </script>
     <link rel="stylesheet" href="styles.css" />
-    <link id="fontawesome-css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" onload="this.dataset.loadState='loaded'" onerror="this.dataset.loadState='error'" />
+    <link id="fontawesome-css" rel="stylesheet" media="print" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" onload="this.media='all';this.dataset.loadState='loaded'" onerror="this.dataset.loadState='error'" />
+    <script>
+      if ("serviceWorker" in navigator && location.protocol !== "file:") {
+        navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {});
+      }
+    </script>
   </head>
   <body>
     <main class="app-shell">
@@ -170,14 +176,14 @@
         <div class="achievement-layout">
           <p class="achievement-kicker"><span class="achievement-pulse" aria-hidden="true"></span> DEEP THINKING · 深度思考（用时10秒）</p>
           <div class="achievement-copy-column">
-            <p id="achievement-tier" class="achievement-tier">黄金角色解锁</p>
+            <p id="achievement-tier" class="achievement-tier">黄金角色 · 本局首次合成</p>
             <h2 id="achievement-title">恭喜用户合成出了黄金角色——Claude</h2>
             <p id="achievement-copy" class="achievement-copy">新的角色已加入图鉴。游戏不会重启，关闭弹窗即可继续。</p>
             <button id="achievement-continue" class="primary-button achievement-continue" type="button">关闭并继续游戏</button>
           </div>
           <figure class="achievement-art">
-            <img id="achievement-avatar" src="Assets/illustrations/big-fish-eating-rice.webp" alt="大肥鱼正在吃白饭" />
-            <figcaption>合成大肥鱼 · 继续进化</figcaption>
+            <img id="achievement-avatar" src="Assets/processed/Claude.webp?v=2" alt="Claude头像" />
+            <figcaption id="achievement-caption">Claude · 黄金角色</figcaption>
           </figure>
         </div>
         <nav class="creator-links achievement-creator-links" aria-label="支持作者与游戏仓库">
@@ -282,6 +288,7 @@
             <ul>
               <li>两个相同角色碰在一起时，会自动合成下一阶角色。</li>
               <li>放下角色后，要等它碰到其他角色或池底才能继续放；两次放置至少间隔 0.35 秒。</li>
+              <li>连续消除：两次合成相隔不超过 0.35 秒视为连续；达到 3 连及以上时会提示，并使本轮基础合成积分额外增加 10%。</li>
               <li>角色在结束线上方稳定停留时，本局结束。</li>
             </ul>
           </section>

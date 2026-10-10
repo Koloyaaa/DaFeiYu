@@ -3,7 +3,9 @@
 
   const manifest = window.FISH_ASSET_MANIFEST;
   const profileKey = "big-fish-leaderboard-profile";
-  const pendingProfileNameKey = "big-fish-leaderboard-pending-profile-name-v1";
+  const legacyPendingProfileNameKey = "big-fish-leaderboard-pending-profile-name-v1";
+  const pendingProfileSyncKey = "big-fish-leaderboard-pending-profile-sync-v2";
+  const playerIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const stagesBySrc = new Map(manifest.assets.map((asset) => [asset.src, asset]));
   const defaultAvatar = manifest.assets.find((asset) => asset.id === "DeepSeek").src;
   const list = document.getElementById("leaderboard-list");
@@ -22,8 +24,28 @@
   const avatarPreview = document.getElementById("leaderboard-avatar-preview");
   const profileEdit = document.getElementById("leaderboard-profile-edit");
   let board = [];
+  let legacyProfileNeedsClaim = false;
   let profile = readProfile();
-  let pendingProfileName = readPendingProfileName();
+  let pendingProfileSync = readPendingProfileSync();
+  if (!pendingProfileSync && legacyProfileNeedsClaim && profile.name) {
+    pendingProfileSync = { playerId: profile.playerId, previousName: profile.name };
+    persistPendingProfileSync();
+  }
+
+  function isPlayerId(value) {
+    return typeof value === "string" && playerIdPattern.test(value);
+  }
+
+  function createPlayerId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID().toLowerCase();
+    const bytes = new Uint8Array(16);
+    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+    else bytes.forEach((_, index) => { bytes[index] = Math.floor(Math.random() * 256); });
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
 
   function cleanName(value) {
     return Array.from(String(value || "").trim().replace(/[\u0000-\u001f\u007f-\u009f]/g, ""))
@@ -33,20 +55,34 @@
   function readProfile() {
     let saved;
     try { saved = JSON.parse(window.localStorage.getItem(profileKey) || "null"); } catch (_) { saved = null; }
+    const name = saved && cleanName(saved.name) || "";
+    const hasPlayerId = saved && isPlayerId(saved.playerId);
+    legacyProfileNeedsClaim = Boolean(name && !hasPlayerId);
     return {
-      name: saved && cleanName(saved.name) || "",
+      name,
       avatar: saved && stagesBySrc.has(saved.avatar) ? saved.avatar : "",
+      playerId: hasPlayerId ? saved.playerId.toLowerCase() : createPlayerId(),
     };
   }
 
-  function readPendingProfileName() {
-    try { return cleanName(window.localStorage.getItem(pendingProfileNameKey) || ""); } catch (_) { return ""; }
+  function readPendingProfileSync() {
+    try {
+      const pending = JSON.parse(window.localStorage.getItem(pendingProfileSyncKey) || "null");
+      if (pending && isPlayerId(pending.playerId)) {
+        return { playerId: pending.playerId.toLowerCase(), previousName: cleanName(pending.previousName) };
+      }
+      const legacyName = cleanName(window.localStorage.getItem(legacyPendingProfileNameKey) || "");
+      return legacyName && profile.name
+        ? { playerId: profile.playerId, previousName: legacyName }
+        : null;
+    } catch (_) { return null; }
   }
 
-  function persistPendingProfileName() {
+  function persistPendingProfileSync() {
     try {
-      if (pendingProfileName) window.localStorage.setItem(pendingProfileNameKey, pendingProfileName);
-      else window.localStorage.removeItem(pendingProfileNameKey);
+      if (pendingProfileSync) window.localStorage.setItem(pendingProfileSyncKey, JSON.stringify(pendingProfileSync));
+      else window.localStorage.removeItem(pendingProfileSyncKey);
+      window.localStorage.removeItem(legacyPendingProfileNameKey);
     } catch (_) { /* profile sync can be retried after the next profile edit */ }
   }
 
@@ -55,11 +91,11 @@
   }
 
   function saveProfile(nextProfile) {
-    if (profile.name && (profile.name !== nextProfile.name || profile.avatar !== nextProfile.avatar) && !pendingProfileName) {
-      pendingProfileName = profile.name;
-      persistPendingProfileName();
+    if (profile.name && (profile.name !== nextProfile.name || profile.avatar !== nextProfile.avatar) && !pendingProfileSync) {
+      pendingProfileSync = { playerId: profile.playerId, previousName: profile.name };
+      persistPendingProfileSync();
     }
-    profile = nextProfile;
+    profile = { ...nextProfile, playerId: profile.playerId || createPlayerId() };
     try { window.localStorage.setItem(profileKey, JSON.stringify(profile)); } catch (_) { /* local profile is optional */ }
     renderProfile();
     window.dispatchEvent(new CustomEvent("fish-profile-updated"));
@@ -141,6 +177,7 @@
         name: cleanName(entry.name) || "无名玩家",
         avatar: stagesBySrc.has(entry.avatar) ? entry.avatar : defaultAvatar,
         score: Number(entry.score),
+        isPlayer: entry.is_player === true,
       }));
   }
 
@@ -157,8 +194,7 @@
     board.forEach((entry, index) => {
       const row = document.createElement("li");
       row.className = "leaderboard-row";
-      const isLocalPlayer = isProfileReady()
-        && entry.name.toLocaleLowerCase("zh-CN") === profile.name.toLocaleLowerCase("zh-CN");
+      const isLocalPlayer = isProfileReady() && entry.isPlayer;
       if (isLocalPlayer) row.classList.add("is-local");
 
       const rank = document.createElement("span");
@@ -193,15 +229,10 @@
     }
     status.textContent = "正在读取全球榜单…";
     try {
-      const params = new URLSearchParams({
-        select: "name,avatar,score",
-        order: "score.desc,id.asc",
-        limit: "20",
-      });
-      board = cleanBoard(await request(`leaderboard?${params.toString()}`));
+      board = await fetchBoardEntries();
       status.textContent = `已读取 ${board.length} 条成绩（最多显示 20 名）`;
       renderBoard();
-      if (pendingProfileName) await syncPendingProfileUpdate();
+      if (pendingProfileSync) await syncPendingProfileUpdate();
       return board;
     } catch (_) {
       status.textContent = "排行榜暂时无法连接，请稍后重试。";
@@ -209,24 +240,19 @@
     }
   }
 
+  async function fetchBoardEntries() {
+    return cleanBoard(await request("rpc/get_leaderboard", {
+      method: "POST",
+      body: JSON.stringify({ p_player_id: profile.playerId }),
+    }));
+  }
+
   async function syncPendingProfileUpdate() {
-    const previousName = cleanName(pendingProfileName);
-    if (!previousName || !isProfileReady()) return;
-
-    const previousKey = previousName.toLocaleLowerCase("zh-CN");
-    const currentKey = profile.name.toLocaleLowerCase("zh-CN");
-    const previousEntry = board.find((entry) => entry.name.toLocaleLowerCase("zh-CN") === previousKey);
-    if (!previousEntry) {
-      pendingProfileName = "";
-      persistPendingProfileName();
-      status.textContent = "名片已保存在本机；你当前没有全球榜单成绩需要同步。";
-      return;
-    }
-
-    const nameConflict = currentKey !== previousKey
-      && board.some((entry) => entry.name.toLocaleLowerCase("zh-CN") === currentKey);
-    if (nameConflict) {
-      status.textContent = "名片已保存在本机；这个昵称已被榜单中的其他玩家使用，请换一个昵称后重试。";
+    const pending = pendingProfileSync;
+    if (!pending || !isProfileReady()) return;
+    if (pending.playerId !== profile.playerId) {
+      pendingProfileSync = null;
+      persistPendingProfileSync();
       return;
     }
 
@@ -234,31 +260,36 @@
       const updated = await request("rpc/update_leaderboard_profile", {
         method: "POST",
         body: JSON.stringify({
-          p_previous_name: previousName,
+          p_player_id: pending.playerId,
+          p_previous_name: pending.previousName || null,
           p_name: profile.name,
           p_avatar: profile.avatar,
         }),
       });
-      if (!updated) {
-        status.textContent = "名片已保存在本机；排行榜资料暂未同步，打开排行榜时会重试。";
+      if (updated !== true) {
+        pendingProfileSync = null;
+        persistPendingProfileSync();
+        status.textContent = "名片已保存在本机；你当前没有全球榜单成绩需要同步。";
         return;
       }
 
-      board = board.map((entry) => entry.name.toLocaleLowerCase("zh-CN") === previousKey
-        ? { ...entry, name: profile.name, avatar: profile.avatar }
-        : entry);
-      pendingProfileName = "";
-      persistPendingProfileName();
-      renderBoard();
-      status.textContent = "排行榜中的昵称和头像已更新。";
+      pendingProfileSync = null;
+      persistPendingProfileSync();
+      try {
+        board = await fetchBoardEntries();
+        renderBoard();
+        status.textContent = "排行榜中的昵称和头像已更新。";
+      } catch (_) {
+        status.textContent = "昵称和头像已同步；排行榜暂时无法刷新，稍后会自动更新。";
+      }
     } catch (_) {
-      status.textContent = "名片已保存在本机；排行榜资料暂未同步，连接恢复后会重试。";
+      status.textContent = "名片已保存在本机；排行榜资料暂未同步，连接恢复后会自动重试。";
     }
   }
 
   function qualifies(score) {
     if (!isProfileReady()) return false;
-    const previous = board.find((entry) => entry.name.toLocaleLowerCase("zh-CN") === profile.name.toLocaleLowerCase("zh-CN"));
+    const previous = board.find((entry) => entry.isPlayer);
     if (previous) return score > previous.score;
     return board.length < 20 || score > board[board.length - 1].score;
   }
@@ -270,21 +301,27 @@
       const latestBoard = await refreshBoard();
       if (latestBoard === null) return { status: "offline" };
       if (!qualifies(score)) {
-        const rank = board.findIndex((entry) => entry.name.toLocaleLowerCase("zh-CN") === profile.name.toLocaleLowerCase("zh-CN"));
+        const rank = board.findIndex((entry) => entry.isPlayer);
         return { status: "not-ranked", rank: rank < 0 ? null : rank + 1 };
       }
 
       const accepted = await request("rpc/submit_leaderboard_score", {
         method: "POST",
-        body: JSON.stringify({ p_name: profile.name, p_avatar: profile.avatar, p_score: score }),
+        body: JSON.stringify({
+          p_player_id: profile.playerId,
+          p_previous_name: pendingProfileSync?.playerId === profile.playerId ? pendingProfileSync.previousName : null,
+          p_name: profile.name,
+          p_avatar: profile.avatar,
+          p_score: score,
+        }),
       });
       const updatedBoard = await refreshBoard();
       if (!accepted) {
-        const rank = board.findIndex((entry) => entry.name.toLocaleLowerCase("zh-CN") === profile.name.toLocaleLowerCase("zh-CN"));
+        const rank = board.findIndex((entry) => entry.isPlayer);
         return { status: "not-ranked", rank: rank < 0 ? null : rank + 1 };
       }
       const rank = updatedBoard
-        ? updatedBoard.findIndex((entry) => entry.name.toLocaleLowerCase("zh-CN") === profile.name.toLocaleLowerCase("zh-CN"))
+        ? updatedBoard.findIndex((entry) => entry.isPlayer)
         : -1;
       return { status: "ranked", rank: rank < 0 ? null : rank + 1 };
     } catch (_) {

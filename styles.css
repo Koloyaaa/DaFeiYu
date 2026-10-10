@@ -19,6 +19,20 @@
 
 * { box-sizing: border-box; }
 
+body.has-touch-input,
+body.has-touch-input * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+body.has-touch-input input,
+body.has-touch-input textarea,
+body.has-touch-input [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 body {
   position: relative;
   isolation: isolate;
@@ -257,6 +271,8 @@ button { font: inherit; }
   font-size: .8rem;
   font-weight: 700;
   text-align: center;
+  white-space: pre-line;
+  max-width: calc(100% - 24px);
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
