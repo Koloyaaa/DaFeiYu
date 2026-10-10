@@ -3,11 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#edf5ff" />
+    <meta name="theme-color" content="#f1f6fa" />
     <title>合成大肥鱼</title>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
     <link rel="icon" type="image/webp" href="Assets/processed/DeepSeek.webp?v=2" />
     <link rel="preload" as="image" href="Assets/illustrations/big-fish-eating-rice.webp" type="image/webp" fetchpriority="high" />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("big-fish-theme");
+        const systemPrefersDark = window.matchMedia
+          && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = savedTheme === "light" || savedTheme === "dark"
+          ? savedTheme
+          : systemPrefersDark ? "dark" : "light";
+      } catch (_) {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
     <link rel="stylesheet" href="styles.css" />
+    <link id="fontawesome-css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" onload="this.dataset.loadState='loaded'" onerror="this.dataset.loadState='error'" />
   </head>
   <body>
     <main class="app-shell">
@@ -20,14 +34,46 @@
         </div>
       </header>
 
-      <div class="game-layout">
-        <section class="play-column" aria-labelledby="play-title">
-          <div class="section-heading">
-            <div>
-              <h2 id="play-title">合成</h2>
-            </div>
-          </div>
+      <aside class="utility-sidebar" aria-label="快捷功能">
+        <nav class="utility-actions" aria-label="游戏功能">
+          <button class="utility-action restart-button" id="restart-button" type="button" title="重来一局" aria-label="重来一局">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-solid fa-rotate-right"></i></span><span class="utility-label">重来一局</span>
+          </button>
+          <button class="utility-action" id="leaderboard-open" type="button" title="全球排行榜" aria-label="全球排行榜">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-solid fa-trophy"></i></span><span class="utility-label">全球排行榜</span>
+          </button>
+          <button class="utility-action" id="rules-open" type="button" title="游戏规则" aria-label="游戏规则">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-solid fa-book-open"></i></span><span class="utility-label">游戏规则</span>
+          </button>
+          <button class="utility-action hammer-button" id="hammer-button" type="button" aria-pressed="false" title="道具兑换" aria-label="道具兑换，使用 1000 本局积分兑换重锤">
+            <span class="utility-icon hammer-icon" aria-hidden="true"><i class="fa-solid fa-hammer"></i></span>
+            <span class="utility-copy hammer-copy"><span class="utility-label">道具兑换</span><small id="hammer-button-note">已用 0 / 3 · 1000 积分</small></span>
+          </button>
+          <button class="utility-action" id="profile-open" type="button" title="玩家信息" aria-label="玩家信息">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-solid fa-user"></i></span><span class="utility-label">玩家信息</span>
+          </button>
+          <button class="utility-action" id="theme-toggle" type="button" title="切换配色" aria-label="切换配色">
+            <span class="utility-icon" aria-hidden="true"><i id="theme-icon" class="fa-solid fa-moon"></i></span><span class="utility-label" id="theme-label">深色配色</span>
+          </button>
+          <button class="utility-action" id="share-button" type="button" title="分享游戏" aria-label="分享游戏链接">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-solid fa-share-nodes"></i></span><span class="utility-label">分享链接</span>
+          </button>
+        </nav>
+        <div class="utility-divider" aria-hidden="true"></div>
+        <nav class="utility-community" aria-label="支持作者与项目">
+          <a class="utility-action" href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer" title="给 GitHub 仓库点 Star" aria-label="给 GitHub 仓库点 Star">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-solid fa-star"></i></span><span class="utility-label">仓库 Star</span>
+          </a>
+          <a class="utility-action" href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer" title="在 GitHub 关注作者 LéoWEE" aria-label="在 GitHub 关注作者 LéoWEE">
+            <span class="utility-icon" aria-hidden="true"><i class="fa-brands fa-github"></i></span><span class="utility-label">关注作者</span>
+          </a>
+        </nav>
+        <p id="utility-feedback" class="utility-feedback" role="status" aria-live="polite" hidden></p>
+        <p id="utility-status" class="sr-only" role="status" aria-live="polite"></p>
+      </aside>
 
+      <div class="game-layout">
+        <section class="play-column" aria-label="游戏池">
           <div class="board-frame">
             <canvas id="game" width="420" height="620" tabindex="0" role="img"
               aria-label="合成大肥鱼游戏区域。选择位置放下角色，合并相同角色。">
@@ -38,8 +84,8 @@
 
           <div class="play-footer">
             <p>
-              <span class="desktop-instructions">鼠标移动选位，点击放下角色（每 0.35 秒一个）；相同角色自动合成。</span>
-              <span class="touch-instructions" id="touch-instructions" aria-live="polite">轻点即落下；按住拖动选位，松手放置（每 0.35 秒一个）。</span>
+              <span class="desktop-instructions">鼠标移动选位，点击放下角色；相同角色自动合成。</span>
+              <span class="touch-instructions" id="touch-instructions" aria-live="polite">轻点即落下；按住拖动选位，松手放置。</span>
             </p>
           </div>
         </section>
@@ -54,6 +100,15 @@
               <span>最高纪录</span>
               <strong id="best-score">0</strong>
             </div>
+          </section>
+
+          <section class="items-card" aria-labelledby="items-title">
+            <div class="items-heading">
+              <h2 id="items-title">道具</h2>
+              <span id="big-fish-progress" class="items-progress">大肥鱼 0 / 2</span>
+            </div>
+            <div class="items-inventory"><span>复活卡</span><strong id="revive-card-count">0</strong></div>
+            <p id="item-status" class="item-status" role="status" aria-live="polite">消耗 1000 本局积分换重锤，选中后点一个角色。</p>
           </section>
 
           <section class="next-card" aria-labelledby="next-title">
@@ -72,60 +127,177 @@
               <div><h2 id="collection-title">角色图鉴</h2></div>
               <span id="collection-count" class="collection-count">0 / 11</span>
             </div>
+            <div class="rarity-legend" aria-label="稀有度颜色图例">
+              <span class="tier-bronze">青铜</span><span class="tier-silver">白银</span><span class="tier-gold">黄金</span><span class="tier-supreme">至尊</span>
+            </div>
             <ol id="collection-list" class="collection-list" aria-label="模型进化顺序"></ol>
           </section>
 
-          <button class="restart-button" id="restart-button" type="button">
-            <span aria-hidden="true">↻</span> 再开一局
-          </button>
-          <p class="keyboard-note">键盘：← → 移动，空格放下，R 重来</p>
+          <p class="keyboard-note">键盘：← → 移动，空格放下；选中重锤后方向键瞄准、Enter 砸击、Esc 取消，R 重来</p>
         </aside>
       </div>
 
       <footer class="page-footer">
-        <span>作者：DornGames <a class="author-handle" href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">@LéoWEE</a></span>
-        <nav class="footer-links" aria-label="相关链接">
-          <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">作品仓库</a>
-        </nav>
+        <span class="footer-copyright">© DornGames</span>
+        <p class="footer-credit">
+          <a class="footer-author-link" href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">作者 GitHub @Léo WEE</a>
+          <span aria-hidden="true">|</span>
+          <span lang="en">All right reserved.</span>
+        </p>
       </footer>
       <section id="asset-loader" class="asset-loader" role="status" aria-live="polite" aria-label="游戏素材加载状态">
         <div class="asset-loader-card">
           <img class="asset-loader-character" src="Assets/illustrations/big-fish-eating-rice.webp" width="448" height="448" alt="" fetchpriority="high" decoding="async" />
-          <h2 id="asset-loading-title">正在干饭</h2>
-          <p id="asset-loading-message" class="asset-loading-message">大肥鱼正在偷吃用户的白饭，吃完这碗就来玩！</p>
-          <div class="asset-progress-track" role="progressbar" aria-label="干饭进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <h2 id="asset-loading-title">游戏准备中</h2>
+          <p id="asset-loading-message" class="asset-loading-message">加载角色与图标，连接排行榜后即可开始。</p>
+          <div class="asset-progress-track" role="progressbar" aria-label="游戏资源与排行榜连接进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <span id="asset-progress" class="asset-progress"></span>
           </div>
-          <p id="asset-loading-count" class="asset-loading-count">干饭进度：0%</p>
+          <p id="asset-loading-count" class="asset-loading-count">准备进度：0%</p>
+          <nav class="creator-links loader-creator-links" aria-label="支持作者与游戏仓库">
+            <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">喜欢游戏？给仓库点个 Star</a>
+            <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">在 GitHub 关注作者 @LéoWEE</a>
+          </nav>
           <button id="asset-retry" class="primary-button asset-retry" type="button" hidden>重试加载</button>
         </div>
       </section>
       <div id="announcer" class="sr-only" aria-live="polite"></div>
-      <div id="victory-toast" class="victory-toast" role="status" aria-live="polite" hidden>
-        <img id="victory-toast-avatar" alt="" />
-        <div class="victory-toast-copy">
-          <strong>通关啦！</strong>
-          <span>你已经合成出大肥鱼。</span>
+      <dialog id="achievement-dialog" class="achievement-dialog" aria-labelledby="achievement-title">
+        <div class="achievement-layout">
+          <div class="achievement-copy-column">
+            <p class="achievement-kicker"><span class="achievement-pulse" aria-hidden="true"></span> DEEP THINKING · 深度思考（用时10秒）</p>
+            <p id="achievement-tier" class="achievement-tier">黄金角色解锁</p>
+            <h2 id="achievement-title">恭喜用户合成出了黄金角色——Claude</h2>
+            <p id="achievement-copy" class="achievement-copy">新的角色已加入图鉴。游戏不会重启，关闭弹窗即可继续。</p>
+            <button id="achievement-continue" class="primary-button achievement-continue" type="button">关闭并继续游戏</button>
+          </div>
+          <figure class="achievement-art">
+            <img id="achievement-avatar" src="Assets/illustrations/big-fish-eating-rice.webp" alt="大肥鱼正在吃白饭" />
+            <figcaption>合成大肥鱼 · 继续进化</figcaption>
+          </figure>
         </div>
-      </div>
-      <section id="victory-certificate" class="victory-certificate" role="status" aria-live="polite" aria-labelledby="victory-certificate-title" hidden>
-        <img id="victory-certificate-avatar" alt="" />
-        <div class="victory-certificate-copy">
-          <span class="victory-certificate-kicker">合成大肥鱼 · 成就解锁</span>
-          <h2 id="victory-certificate-title">通关认证</h2>
-          <p>认证通过：成功合成大肥鱼</p>
-          <strong id="victory-certificate-score">本局积分：0</strong>
-        </div>
-        <span class="victory-certificate-seal" aria-hidden="true">✓</span>
-      </section>
+        <nav class="creator-links achievement-creator-links" aria-label="支持作者与游戏仓库">
+          <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">给仓库点个 Star</a>
+          <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">关注作者 @LéoWEE</a>
+        </nav>
+      </dialog>
       <dialog id="game-over-dialog" class="result-dialog" aria-labelledby="result-title">
         <h2 id="result-title">本局结束</h2>
         <img id="result-avatar" class="result-avatar" alt="" hidden />
         <p id="result-copy"></p>
         <div class="result-stats"><span>本局积分</span><strong id="result-score">0</strong></div>
+        <p id="result-leaderboard-status" class="result-leaderboard-status" role="status" aria-live="polite" hidden></p>
+        <button id="dialog-revive" class="primary-button" type="button" hidden>使用复活卡继续</button>
         <button id="dialog-restart" class="primary-button" type="button">再开一局 <span aria-hidden="true">→</span></button>
+        <nav class="creator-links dialog-creator-links" aria-label="支持作者与游戏仓库">
+          <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">喜欢游戏？给仓库点个 Star</a>
+          <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">关注作者 @LéoWEE</a>
+        </nav>
       </dialog>
+      <dialog id="leaderboard-dialog" class="leaderboard-dialog" aria-labelledby="leaderboard-title">
+        <header class="leaderboard-header">
+          <div>
+            <p class="leaderboard-kicker">合成大肥鱼 · 全球积分</p>
+            <h2 id="leaderboard-title">排行榜</h2>
+          </div>
+          <button id="leaderboard-close" class="leaderboard-close" type="button" aria-label="关闭排行榜">×</button>
+        </header>
+
+        <section class="leaderboard-player" aria-label="本地玩家名片">
+          <div class="leaderboard-profile-summary">
+            <img id="leaderboard-profile-avatar" class="leaderboard-avatar" alt="玩家头像" />
+            <div class="leaderboard-profile-copy">
+              <span>本机名片</span>
+              <strong id="leaderboard-profile-name"></strong>
+            </div>
+            <button id="leaderboard-profile-edit" class="text-button" type="button" aria-expanded="false" aria-controls="leaderboard-profile-form">编辑</button>
+          </div>
+          <form id="leaderboard-profile-form" class="leaderboard-profile-form" hidden>
+            <label for="leaderboard-name">昵称</label>
+            <input id="leaderboard-name" name="name" type="text" maxlength="16" autocomplete="nickname" required />
+            <label for="leaderboard-avatar-choice">头像</label>
+            <div class="leaderboard-avatar-picker">
+              <img id="leaderboard-avatar-preview" class="leaderboard-avatar" alt="当前选择的头像预览" />
+            <select id="leaderboard-avatar-choice" name="avatar" aria-label="选择头像" required></select>
+            </div>
+            <div class="leaderboard-profile-actions">
+              <button class="primary-button" type="submit">保存到本机</button>
+              <button id="leaderboard-profile-cancel" class="text-button" type="button">取消</button>
+            </div>
+            <p class="leaderboard-note">昵称和头像保存在当前浏览器；只有成绩进入前 20 名时，名片才会提交到榜单。</p>
+          </form>
+        </section>
+
+        <p id="leaderboard-status" class="leaderboard-status" role="status" aria-live="polite">正在连接排行榜…</p>
+        <ol id="leaderboard-list" class="leaderboard-list" aria-label="排行榜前 20 名"></ol>
+        <div class="leaderboard-footer">
+          <span>同一昵称只保留最高分</span>
+          <button id="leaderboard-refresh" class="text-button" type="button">刷新榜单</button>
+        </div>
+        <nav class="creator-links dialog-creator-links" aria-label="支持作者与游戏仓库">
+          <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">给仓库点个 Star</a>
+          <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">关注作者 @LéoWEE</a>
+        </nav>
+      </dialog>
+      <dialog id="profile-setup-dialog" class="leaderboard-dialog profile-setup-dialog" aria-labelledby="profile-setup-title">
+        <p class="leaderboard-kicker">合成大肥鱼 · 玩家名片</p>
+        <h2 id="profile-setup-title">先设置昵称和头像</h2>
+        <p class="profile-setup-copy">名片保存在当前浏览器。完成后就能开始游戏；只有进入全球前 20 名时，名片和成绩才会提交到排行榜。</p>
+        <form id="profile-setup-form" class="leaderboard-profile-form">
+          <label for="profile-setup-name">昵称</label>
+          <input id="profile-setup-name" name="name" type="text" maxlength="16" autocomplete="nickname" required autofocus />
+          <label for="profile-setup-avatar">头像</label>
+          <div class="leaderboard-avatar-picker">
+            <img id="profile-setup-preview" class="leaderboard-avatar" alt="头像预览" hidden />
+            <select id="profile-setup-avatar" name="avatar" aria-label="选择头像" required></select>
+          </div>
+          <button class="primary-button profile-setup-submit" type="submit">保存名片并开始</button>
+        </form>
+        <nav class="creator-links dialog-creator-links" aria-label="支持作者与游戏仓库">
+          <a href="https://github.com/Koloyaaa/DaFeiYu" target="_blank" rel="noopener noreferrer">喜欢游戏？给仓库点个 Star</a>
+          <a href="https://github.com/Koloyaaa" target="_blank" rel="noopener noreferrer">关注作者 @LéoWEE</a>
+        </nav>
+      </dialog>
+      <dialog id="rules-dialog" class="leaderboard-dialog rules-dialog" aria-labelledby="rules-title">
+        <header class="leaderboard-header">
+          <div>
+            <p class="leaderboard-kicker">合成大肥鱼 · 游戏说明</p>
+            <h2 id="rules-title">游戏规则</h2>
+          </div>
+          <button id="rules-close" class="leaderboard-close" type="button" aria-label="关闭游戏规则">×</button>
+        </header>
+        <div class="rules-content">
+          <section>
+            <h3>合成与放置</h3>
+            <ul>
+              <li>两个相同角色碰在一起时，会自动合成下一阶角色。</li>
+              <li>放下角色后，要等它碰到其他角色或池底才能继续放；两次放置至少间隔 0.35 秒。</li>
+              <li>角色在结束线上方稳定停留时，本局结束。</li>
+            </ul>
+          </section>
+          <section>
+            <h3>道具</h3>
+            <ul>
+              <li>每次成功使用重锤消耗 1000 本局积分，每局最多使用 3 次。</li>
+              <li>每合成两条大肥鱼，可获得一张复活卡。</li>
+              <li>使用复活卡继续本局，并额外获得 2 次重锤机会。</li>
+            </ul>
+          </section>
+          <section>
+            <h3>操作</h3>
+            <ul>
+              <li>鼠标：移动选位，点击放下角色。</li>
+              <li>触屏：轻点放下；按住拖动选位，松手放置。</li>
+              <li>键盘：<kbd>←</kbd> / <kbd>→</kbd> 移动，<kbd>Space</kbd> 放置，<kbd>R</kbd> 重开。</li>
+              <li>重锤：选中后点选角色；键盘用方向键瞄准，<kbd>Enter</kbd> 砸击，<kbd>Esc</kbd> 取消。</li>
+            </ul>
+          </section>
+        </div>
+      </dialog>
+      <script src="supabase-config.js"></script>
       <script src="Assets/processed/manifest.js"></script>
+      <script src="leaderboard.js"></script>
+      <script src="ui-controls.js"></script>
       <script src="game.js"></script>
     </main>
   </body>

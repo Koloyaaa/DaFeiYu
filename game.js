@@ -9,13 +9,20 @@
   const LEFT = 24;
   const RIGHT = 396;
   const FLOOR = 594;
-  const DANGER_LINE = 136;
+  const DANGER_LINE = 118;
   const DROP_Y = 66;
   const DROP_INTERVAL = 0.35;
-  const VICTORY_STEP_DELAY = 10_000;
+  const HAMMER_COST = 1000;
+  const BASE_HAMMER_USES = 3;
+  const HAMMER_USES_PER_REVIVE = 2;
+  const ITEMS_STORAGE_KEY = "big-fish-items-v1";
+  const ACHIEVEMENTS_STORAGE_KEY = "big-fish-achievements-v1";
   const GRAVITY = 1450;
   const BASE_SIZE = 45;
-  const SIZE_GROWTH = 1.21;
+  const CHARACTER_SIZE_SCALE = 1;
+  const SIZE_GROWTH_THROUGH_GLM = 1.202;
+  const SIZE_GROWTH_THROUGH_CLAUDE = 1.168;
+  const SIZE_GROWTH_AFTER_CLAUDE = 1.145;
   const PHYSICS_SUBSTEPS = 3;
   const POSITION_ITERATIONS = 4;
   const MAX_ANGULAR_SPEED = 0.72;
@@ -37,6 +44,17 @@
   const MERGE_PROXIMITY_MAX = 8;
   const geometryCache = new WeakMap();
   const stageOrder = manifest.progressionOrder;
+  const glmLevel = stageOrder.indexOf("GLM");
+  const claudeLevel = stageOrder.indexOf("Claude");
+  const sizeMultiplierByLevel = [1];
+  for (let level = 1; level < stageOrder.length; level += 1) {
+    const growth = level <= glmLevel
+      ? SIZE_GROWTH_THROUGH_GLM
+      : level <= claudeLevel
+        ? SIZE_GROWTH_THROUGH_CLAUDE
+        : SIZE_GROWTH_AFTER_CLAUDE;
+    sizeMultiplierByLevel.push(sizeMultiplierByLevel[level - 1] * growth);
+  }
   const rawAssets = new Map(manifest.assets.map((asset) => [asset.id, asset]));
   const stages = stageOrder.map((id, index) => {
     const asset = rawAssets.get(id);
@@ -61,16 +79,26 @@
   const assetLoadingCount = document.getElementById("asset-loading-count");
   const assetProgress = document.getElementById("asset-progress");
   const assetRetryButton = document.getElementById("asset-retry");
+  const loaderCharacter = document.querySelector(".asset-loader-character");
+  const fontAwesomeLink = document.getElementById("fontawesome-css");
   const resultCopy = document.getElementById("result-copy");
   const resultTitle = document.getElementById("result-title");
   const resultScore = document.getElementById("result-score");
+  const resultLeaderboardStatus = document.getElementById("result-leaderboard-status");
   const resultAvatar = document.getElementById("result-avatar");
   const touchInstructions = document.getElementById("touch-instructions");
-  const victoryToast = document.getElementById("victory-toast");
-  const victoryToastAvatar = document.getElementById("victory-toast-avatar");
-  const victoryCertificate = document.getElementById("victory-certificate");
-  const victoryCertificateAvatar = document.getElementById("victory-certificate-avatar");
-  const victoryCertificateScore = document.getElementById("victory-certificate-score");
+  const achievementDialog = document.getElementById("achievement-dialog");
+  const achievementTier = document.getElementById("achievement-tier");
+  const achievementTitle = document.getElementById("achievement-title");
+  const achievementCopy = document.getElementById("achievement-copy");
+  const achievementAvatar = document.getElementById("achievement-avatar");
+  const achievementContinue = document.getElementById("achievement-continue");
+  const hammerButton = document.getElementById("hammer-button");
+  const hammerButtonNote = document.getElementById("hammer-button-note");
+  const reviveCardCountNode = document.getElementById("revive-card-count");
+  const bigFishProgressNode = document.getElementById("big-fish-progress");
+  const itemStatus = document.getElementById("item-status");
+  const reviveButton = document.getElementById("dialog-revive");
 
   const hasTouchInput = (navigator.maxTouchPoints || 0) > 0
     || (window.matchMedia && window.matchMedia("(any-pointer: coarse)").matches);
@@ -78,7 +106,10 @@
 
   const collectionRows = stages.map((stage, index) => {
     const row = document.createElement("li");
-    row.className = "collection-item";
+    const tier = tierForLevel(index);
+    row.className = `collection-item tier-${tier}`;
+    row.dataset.tier = tierLabel(tier);
+    row.setAttribute("aria-label", `${stage.id}，${tierLabel(tier)}角色`);
     row.innerHTML = `<span class="collection-rank">${String(index + 1).padStart(2, "0")}</span><img alt="" src="${stage.src}"><span class="collection-name"></span><span class="collection-state"></span>`;
     row.querySelector(".collection-name").textContent = stage.id;
     collectionList.appendChild(row);
@@ -88,13 +119,23 @@
   let pieces = [];
   let particles = [];
   let score = 0;
+  let scoreEarned = 0;
+  let scoreSpent = 0;
+  let runIntegrityCompromised = false;
+  let scoreSubmissionStarted = false;
+  let itemStorageCompromised = false;
+  let itemState = loadItemState();
+  let seenAchievements = loadSeenAchievements();
+  let hammersUsed = 0;
+  let revivalsUsedThisGame = 0;
+  let hammerTargeting = false;
+  let hammerAimY = H * 0.55;
   let record = readNumber("big-fish-record", 0);
   let currentLevel = randomStarter();
   let nextLevel = randomStarter();
   let highestLevel = Math.max(currentLevel, nextLevel);
   let aimX = W / 2;
   let gameOver = false;
-  let won = false;
   let pendingDropId = null;
   let activeTouchGesture = null;
   let lastFrame = 0;
@@ -102,10 +143,16 @@
   let lastDropAt = -Infinity;
   let nextPieceId = 1;
   let toastTimer = 0;
-  let victoryCertificateTimer = 0;
-  let victoryModalTimer = 0;
   let assetsReady = false;
   let assetLoadRun = 0;
+  const loadedStageIds = new Set();
+  const startupState = {
+    loaderImage: false,
+    fontStylesheet: false,
+    solidIconFont: false,
+    brandIconFont: false,
+    database: false,
+  };
 
   function readNumber(key, fallback) {
     try {
@@ -114,6 +161,165 @@
     } catch (_) {
       return fallback;
     }
+  }
+
+  function loadSeenAchievements() {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(ACHIEVEMENTS_STORAGE_KEY) || "[]");
+      if (!Array.isArray(parsed)) return new Set();
+      const stageIds = new Set(stages.map((stage) => stage.id));
+      return new Set(parsed.filter((id) => typeof id === "string" && stageIds.has(id)));
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  function tierForLevel(level) {
+    if (level < 4) return "bronze";
+    if (level < 8) return "silver";
+    if (level < stages.length - 1) return "gold";
+    return "supreme";
+  }
+
+  function tierLabel(tier) {
+    return ({ bronze: "青铜", silver: "白银", gold: "黄金", supreme: "至尊" })[tier] || "";
+  }
+
+  function showAchievement(level, details = {}) {
+    const tier = tierForLevel(level);
+    if (tier !== "gold" && tier !== "supreme") return false;
+    const stage = stages[level];
+    if (seenAchievements.has(stage.id)) return false;
+
+    seenAchievements.add(stage.id);
+    try {
+      window.localStorage.setItem(ACHIEVEMENTS_STORAGE_KEY, JSON.stringify([...seenAchievements]));
+    } catch (_) {
+      // Keep the once-per-browser-session behavior when storage is unavailable.
+    }
+
+    achievementTier.textContent = `${tierLabel(tier)}角色 · 首次解锁`;
+    achievementTitle.textContent = tier === "supreme"
+      ? "恭喜用户合成出了至尊角色——大肥鱼"
+      : `恭喜用户合成出了黄金角色——${stage.id}`;
+    achievementAvatar.src = "Assets/illustrations/big-fish-eating-rice.webp";
+    achievementCopy.textContent = tier === "supreme"
+      ? details.earnsCard
+        ? `两条大肥鱼合成了 1 张复活卡；当前共有 ${itemState.reviveCards} 张。关闭后游戏继续。`
+        : details.saved
+          ? "大肥鱼已加入图鉴；再合成一条即可获得复活卡。关闭后游戏继续。"
+          : "大肥鱼合成成功，但本地道具进度没有保存。关闭后游戏继续。"
+      : "新角色已经加入图鉴。深度思考（用时10秒），关闭弹窗后本局会从当前局面继续。";
+    announcer.textContent = achievementTitle.textContent;
+    if (!achievementDialog.open && typeof achievementDialog.showModal === "function") {
+      achievementDialog.showModal();
+      achievementContinue.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  function itemStateProof(reviveCards, bigFishProgress) {
+    // This detects casual localStorage edits. Browser-side code is public, so it is not a secret signature.
+    const source = `big-fish-items-v1:${reviveCards}:${bigFishProgress}:local-integrity`;
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index += 1) {
+      hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function loadItemState() {
+    const emptyState = { reviveCards: 0, bigFishProgress: 0 };
+    try {
+      const stored = window.localStorage.getItem(ITEMS_STORAGE_KEY);
+      if (stored === null) return emptyState;
+      const parsed = JSON.parse(stored);
+      const validCounts = parsed
+        && parsed.version === 1
+        && Number.isSafeInteger(parsed.reviveCards)
+        && parsed.reviveCards >= 0
+        && parsed.reviveCards <= 9999
+        && Number.isSafeInteger(parsed.bigFishProgress)
+        && (parsed.bigFishProgress === 0 || parsed.bigFishProgress === 1);
+      if (!validCounts || parsed.proof !== itemStateProof(parsed.reviveCards, parsed.bigFishProgress)) {
+        itemStorageCompromised = true;
+        return emptyState;
+      }
+      return { reviveCards: parsed.reviveCards, bigFishProgress: parsed.bigFishProgress };
+    } catch (_) {
+      itemStorageCompromised = true;
+      return emptyState;
+    }
+  }
+
+  function saveItemState(nextState) {
+    const validCounts = Number.isSafeInteger(nextState.reviveCards)
+      && nextState.reviveCards >= 0
+      && nextState.reviveCards <= 9999
+      && Number.isSafeInteger(nextState.bigFishProgress)
+      && (nextState.bigFishProgress === 0 || nextState.bigFishProgress === 1);
+    if (!validCounts || itemStorageCompromised) return false;
+    const stored = {
+      version: 1,
+      reviveCards: nextState.reviveCards,
+      bigFishProgress: nextState.bigFishProgress,
+      proof: itemStateProof(nextState.reviveCards, nextState.bigFishProgress),
+    };
+    try {
+      window.localStorage.setItem(ITEMS_STORAGE_KEY, JSON.stringify(stored));
+      itemState = { reviveCards: stored.reviveCards, bigFishProgress: stored.bigFishProgress };
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function hammerUseLimit() {
+    return BASE_HAMMER_USES + revivalsUsedThisGame * HAMMER_USES_PER_REVIVE;
+  }
+
+  function runIntegrityIsValid() {
+    const expectedScore = scoreEarned - scoreSpent;
+    return !runIntegrityCompromised
+      && Number.isSafeInteger(score)
+      && Number.isSafeInteger(scoreEarned)
+      && Number.isSafeInteger(scoreSpent)
+      && Number.isSafeInteger(hammersUsed)
+      && Number.isSafeInteger(revivalsUsedThisGame)
+      && scoreEarned >= 0
+      && scoreSpent >= 0
+      && score === expectedScore
+      && score >= 0
+      && !itemStorageCompromised
+      && scoreSpent === hammersUsed * HAMMER_COST
+      && hammersUsed <= hammerUseLimit();
+  }
+
+  function updateItemInterface() {
+    const hammerLimit = hammerUseLimit();
+    const remainingUses = Math.max(0, hammerLimit - hammersUsed);
+    const profileReady = window.FishLeaderboard && window.FishLeaderboard.isProfileReady();
+    hammerButtonNote.textContent = hammerTargeting
+      ? `瞄准中 · ${hammersUsed} / ${hammerLimit}`
+      : `已用 ${hammersUsed} / ${hammerLimit} · 1000 积分`;
+    hammerButton.classList.toggle("is-selected", hammerTargeting);
+    hammerButton.setAttribute("aria-pressed", String(hammerTargeting));
+    hammerButton.disabled = !assetsReady
+      || !profileReady
+      || gameOver
+      || (remainingUses <= 0 && !hammerTargeting)
+      || (!hammerTargeting && score < HAMMER_COST)
+      || itemStorageCompromised;
+    reviveCardCountNode.textContent = String(itemState.reviveCards);
+    bigFishProgressNode.textContent = `大肥鱼 ${itemState.bigFishProgress} / 2`;
+    reviveButton.hidden = !gameOver || itemState.reviveCards <= 0;
+    if (gameOver && itemState.reviveCards > 0) {
+      reviveButton.textContent = `使用 1 张复活卡（再获 2 次重锤）`;
+    }
+  }
+
+  function setItemStatus(message) {
+    itemStatus.textContent = message;
   }
 
   function randomStarter() {
@@ -125,70 +331,225 @@
     return STARTER_WEIGHTS.length - 1;
   }
 
-  function updateAssetProgress(completed, failedCount) {
-    const percent = Math.round((completed / stages.length) * 100);
+  function updateAssetProgress(run) {
+    if (run !== assetLoadRun) return;
+    const total = stages.length + 5;
+    const completed = loadedStageIds.size + Object.values(startupState).filter(Boolean).length;
+    const percent = Math.round((completed / total) * 100);
     assetProgress.style.width = `${percent}%`;
     assetProgress.parentElement.setAttribute("aria-valuenow", String(percent));
-    assetLoadingCount.textContent = `干饭进度：${percent}%`;
-    assetLoadingTitle.textContent = failedCount ? "图片加载失败" : "正在干饭";
+    assetLoadingCount.textContent = `准备进度：${percent}%（${completed}/${total}）`;
+    assetLoadingTitle.textContent = completed === total ? "准备完成" : "正在准备游戏";
   }
 
-  function loadStageAssets(retryFailedOnly = false) {
-    const run = ++assetLoadRun;
-    const targets = retryFailedOnly ? stages.filter((stage) => stage.loadFailed) : stages;
-    let completed = stages.length - targets.length;
-    const failed = [];
-    assetsReady = false;
-    assetLoader.hidden = false;
-    assetRetryButton.hidden = true;
-    assetLoadingMessage.textContent = "大肥鱼正在偷吃用户的白饭，吃完这碗就来玩！";
-    updateAssetProgress(completed, 0);
+  function cacheBustedUrl(source, label) {
+    const url = new URL(source, document.baseURI);
+    url.searchParams.set("reload", `${Date.now()}-${label}`);
+    return url.href;
+  }
 
-    const requests = targets.map((stage) => new Promise((resolve) => {
+  function waitForImage(image) {
+    if (image.complete) {
+      return image.naturalWidth > 0
+        ? Promise.resolve()
+        : Promise.reject(new Error("图片无法读取"));
+    }
+    return new Promise((resolve, reject) => {
       let settled = false;
+      const timer = window.setTimeout(() => finish(false), 12000);
       const finish = (success) => {
         if (settled) return;
         settled = true;
-        stage.loadFailed = !success;
-        completed += 1;
-        if (!success) failed.push(stage.id);
-        updateAssetProgress(completed, failed.length);
-        resolve();
+        window.clearTimeout(timer);
+        image.removeEventListener("load", onLoad);
+        image.removeEventListener("error", onError);
+        if (success) resolve();
+        else reject(new Error("图片加载失败"));
       };
-      stage.image.addEventListener("load", () => finish(true), { once: true });
-      stage.image.addEventListener("error", () => finish(false), { once: true });
-      const source = retryFailedOnly
-        ? `${stage.src}${stage.src.includes("?") ? "&" : "?"}reload=${Date.now()}-${stage.index}`
-        : stage.src;
-      stage.image.src = source;
-      if (stage.image.complete) queueMicrotask(() => finish(stage.image.naturalWidth > 0));
-    }));
-
-    Promise.all(requests).then(() => {
-      if (run !== assetLoadRun) return;
-      if (failed.length) {
-        assetLoadingTitle.textContent = "图片加载失败";
-        assetLoadingMessage.textContent = `${failed.join("、")} 加载失败`;
-        assetRetryButton.hidden = false;
-        assetRetryButton.focus({ preventScroll: true });
-        return;
-      }
-      assetLoadingTitle.textContent = "干饭完成";
-      assetLoadingMessage.textContent = "";
-      window.setTimeout(() => {
-        if (run !== assetLoadRun) return;
-        assetLoader.hidden = true;
-        assetsReady = true;
-        lastFrame = 0;
-        draw();
-      }, 360);
+      const onLoad = () => finish(true);
+      const onError = () => finish(false);
+      image.addEventListener("load", onLoad, { once: true });
+      image.addEventListener("error", onError, { once: true });
+      if (image.complete) queueMicrotask(() => finish(image.naturalWidth > 0));
     });
+  }
+
+  function waitForFontStylesheet(retry) {
+    if (!fontAwesomeLink) return Promise.reject(new Error("找不到 Font Awesome 样式"));
+    if (!retry && (fontAwesomeLink.dataset.loadState === "loaded" || fontAwesomeLink.sheet)) {
+      return Promise.resolve();
+    }
+    if (!retry && fontAwesomeLink.dataset.loadState === "error") {
+      return Promise.reject(new Error("Font Awesome 样式加载失败"));
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        fontAwesomeLink.removeEventListener("load", onLoad);
+        fontAwesomeLink.removeEventListener("error", onError);
+      };
+      const finish = (success) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (success) resolve();
+        else reject(new Error("Font Awesome 样式加载失败"));
+      };
+      const onLoad = () => finish(true);
+      const onError = () => finish(false);
+      const timer = window.setTimeout(() => finish(false), 12000);
+      fontAwesomeLink.addEventListener("load", onLoad, { once: true });
+      fontAwesomeLink.addEventListener("error", onError, { once: true });
+      if (retry) {
+        const url = new URL(fontAwesomeLink.href);
+        url.searchParams.set("reload", String(Date.now()));
+        fontAwesomeLink.dataset.loadState = "loading";
+        fontAwesomeLink.href = url.href;
+      } else if (fontAwesomeLink.dataset.loadState === "loaded" || fontAwesomeLink.sheet) {
+        finish(true);
+      } else if (fontAwesomeLink.dataset.loadState === "error") {
+        finish(false);
+      }
+    });
+  }
+
+  async function loadIconFont(declaration, glyph) {
+    if (!document.fonts || typeof document.fonts.load !== "function") {
+      throw new Error("浏览器无法检查图标字体");
+    }
+    let timeout;
+    try {
+      const faces = await Promise.race([
+        document.fonts.load(declaration, glyph),
+        new Promise((_, reject) => {
+          timeout = window.setTimeout(() => reject(new Error("图标字体加载超时")), 12000);
+        }),
+      ]);
+      if (!faces.length || !faces.some((face) => face.status === "loaded")) {
+        throw new Error("图标字体加载失败");
+      }
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  async function loadStageAssets(retryFailedOnly = false) {
+    const run = ++assetLoadRun;
+    const targets = retryFailedOnly ? stages.filter((stage) => stage.loadFailed) : stages;
+    const failures = [];
+    assetsReady = false;
+    assetLoader.hidden = false;
+    assetRetryButton.hidden = true;
+    assetLoadingMessage.textContent = "正在加载角色图片和图标，并连接全球排行榜……";
+
+    const tasks = targets.map(async (stage) => {
+      try {
+        stage.image.src = retryFailedOnly
+          ? cacheBustedUrl(stage.src, stage.index)
+          : stage.src;
+        await waitForImage(stage.image);
+        stage.loadFailed = false;
+        loadedStageIds.add(stage.id);
+      } catch (_) {
+        stage.loadFailed = true;
+        loadedStageIds.delete(stage.id);
+        failures.push(`${stage.id} 图片`);
+      }
+      updateAssetProgress(run);
+    });
+
+    if (!startupState.loaderImage) {
+      tasks.push((async () => {
+        try {
+          if (retryFailedOnly && loaderCharacter.complete && !loaderCharacter.naturalWidth) {
+            loaderCharacter.src = cacheBustedUrl(loaderCharacter.src, "loader");
+          }
+          await waitForImage(loaderCharacter);
+          startupState.loaderImage = true;
+        } catch (_) {
+          failures.push("加载页插画");
+        }
+        updateAssetProgress(run);
+      })());
+    }
+
+    const retryFontStylesheet = retryFailedOnly && (!startupState.solidIconFont || !startupState.brandIconFont);
+    if (retryFontStylesheet) startupState.fontStylesheet = false;
+    let stylesheetPromise;
+    const ensureStylesheet = () => {
+      if (!stylesheetPromise) {
+        stylesheetPromise = (async () => {
+          if (startupState.fontStylesheet) return;
+          await waitForFontStylesheet(retryFontStylesheet);
+          startupState.fontStylesheet = true;
+          updateAssetProgress(run);
+        })();
+      }
+      return stylesheetPromise;
+    };
+
+    const iconFonts = [
+      { key: "solidIconFont", declaration: '900 1em "Font Awesome 7 Free"', glyph: "\uf2f1", label: "Font Awesome 实心图标" },
+      { key: "brandIconFont", declaration: '400 1em "Font Awesome 7 Brands"', glyph: "\uf09b", label: "GitHub 品牌图标" },
+    ];
+    for (const font of iconFonts) {
+      if (startupState[font.key]) continue;
+      tasks.push((async () => {
+        try {
+          await ensureStylesheet();
+          await loadIconFont(font.declaration, font.glyph);
+          startupState[font.key] = true;
+        } catch (_) {
+          failures.push(font.label);
+        }
+        updateAssetProgress(run);
+      })());
+    }
+
+    if (!startupState.database) {
+      tasks.push((async () => {
+        try {
+          const leaderboard = window.FishLeaderboard;
+          if (!leaderboard) throw new Error("排行榜模块不可用");
+          const result = retryFailedOnly ? await leaderboard.connect() : await leaderboard.connectionReady;
+          if (result === null) throw new Error("排行榜连接失败");
+          startupState.database = true;
+        } catch (_) {
+          failures.push("全球排行榜连接");
+        }
+        updateAssetProgress(run);
+      })());
+    }
+
+    updateAssetProgress(run);
+    await Promise.all(tasks);
+    if (run !== assetLoadRun) return;
+
+    if (failures.length) {
+      assetLoadingTitle.textContent = "暂时无法开始";
+      assetLoadingMessage.textContent = `${[...new Set(failures)].join("、")}未能完成，请检查网络后重试。`;
+      assetRetryButton.textContent = "重试加载与连接";
+      assetRetryButton.hidden = false;
+      assetRetryButton.focus({ preventScroll: true });
+      return;
+    }
+
+    assetLoadingTitle.textContent = "准备完成";
+    assetLoadingMessage.textContent = "资源已加载，排行榜已连接。";
+    await new Promise((resolve) => window.setTimeout(resolve, 360));
+    if (run !== assetLoadRun) return;
+    assetLoader.hidden = true;
+    assetsReady = true;
+    lastFrame = 0;
+    draw();
+    if (!window.FishLeaderboard.isProfileReady()) window.FishLeaderboard.openProfileSetup();
   }
 
   function metricsFor(level) {
     const stage = stages[level];
     const bounds = stage.collision.bounds;
-    const diameter = BASE_SIZE * 0.75 * Math.pow(SIZE_GROWTH, level);
+    const diameter = BASE_SIZE * 0.75 * CHARACTER_SIZE_SCALE * sizeMultiplierByLevel[level];
     const widestFraction = Math.max(bounds.width, bounds.height);
     const imageSize = diameter / widestFraction;
     return {
@@ -219,6 +580,7 @@
     nextImage.style.height = `${previewSize}px`;
     nextName.textContent = upcoming.id;
     nextRank.textContent = String(nextLevel + 1).padStart(2, "0");
+    updateItemInterface();
   }
 
   function addPiece(level, x, y, vx = 0, vy = 0, mergeLock = 0, alreadyEnteredBoard = false, angle = 0, angularVelocity = 0) {
@@ -259,11 +621,13 @@
     if (!touchInstructions) return;
     touchInstructions.textContent = gameOver
       ? "本局结束"
-      : "轻点即落下；按住拖动选位，松手放置（每 0.35 秒一个）";
+      : hammerTargeting
+        ? "重锤已选中：轻点一个角色砸掉；再次点重锤可取消。"
+      : "轻点即落下；按住拖动选位，松手放置。";
   }
 
   function dropCharacter() {
-    if (!assetsReady || gameOver) return;
+    if (!window.FishLeaderboard || !window.FishLeaderboard.isProfileReady() || !assetsReady || gameOver) return;
     if (simulationTime - lastDropAt < DROP_INTERVAL) return;
     const metrics = metricsFor(currentLevel);
     const x = clamp(aimX, LEFT + metrics.w / 2, RIGHT - metrics.w / 2);
@@ -278,9 +642,165 @@
     announcer.textContent = `放下了 ${stages[dropped.level].id}。`;
   }
 
+  function pointInPolygon(x, y, vertices) {
+    let inside = false;
+    const count = vertices.length / 2;
+    for (let index = 0, previous = count - 1; index < count; previous = index, index += 1) {
+      const currentX = vertices[index * 2];
+      const currentY = vertices[index * 2 + 1];
+      const previousX = vertices[previous * 2];
+      const previousY = vertices[previous * 2 + 1];
+      const crosses = (currentY > y) !== (previousY > y)
+        && x < ((previousX - currentX) * (y - currentY)) / (previousY - currentY) + currentX;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+
+  function findHammerTarget(x, y) {
+    return pieces
+      .filter((piece) => {
+        const geometry = pieceGeometry(piece);
+        const bounds = geometry.bounds;
+        return x >= bounds.left && x <= bounds.right
+          && y >= bounds.top && y <= bounds.bottom
+          && pointInPolygon(x, y, geometry.vertices);
+      })
+      .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0] || null;
+  }
+
+  function beginHammerTargeting() {
+    if (!assetsReady || gameOver || !window.FishLeaderboard?.isProfileReady()) return;
+    if (hammerTargeting) {
+      hammerTargeting = false;
+      updateTouchInstructions();
+      updateInterface();
+      setItemStatus("已取消重锤瞄准，没有消耗积分。");
+      return;
+    }
+    if (itemStorageCompromised) {
+      setItemStatus("本地道具存档校验失败，道具已停用。");
+      return;
+    }
+    if (!runIntegrityIsValid()) {
+      runIntegrityCompromised = true;
+      setItemStatus("本局数据校验失败，道具已停用。");
+      updateInterface();
+      return;
+    }
+    if (hammersUsed >= hammerUseLimit()) {
+      setItemStatus(`本局重锤次数已用完（${hammerUseLimit()} 次）。`);
+      return;
+    }
+    if (score < HAMMER_COST) {
+      setItemStatus(`本局积分不足：需要 ${HAMMER_COST.toLocaleString("zh-CN")} 分。`);
+      return;
+    }
+    hammerTargeting = true;
+    hammerAimY = clamp(hammerAimY, 24, FLOOR - 12);
+    updateTouchInstructions();
+    updateInterface();
+    setItemStatus("重锤已就绪：点一个角色砸掉；Esc 可取消。命中后才扣 1000 分。");
+    canvas.focus({ preventScroll: true });
+    draw();
+  }
+
+  function cancelHammerTargeting(message) {
+    if (!hammerTargeting) return;
+    hammerTargeting = false;
+    updateTouchInstructions();
+    updateInterface();
+    if (message) setItemStatus(message);
+    draw();
+  }
+
+  function useHammerAt(x, y) {
+    if (!hammerTargeting || gameOver) return;
+    if (!runIntegrityIsValid() || itemStorageCompromised) {
+      runIntegrityCompromised = true;
+      cancelHammerTargeting("本局数据校验失败，道具已停用。");
+      return;
+    }
+    if (hammersUsed >= hammerUseLimit() || score < HAMMER_COST) {
+      cancelHammerTargeting("重锤次数或积分不足，没有消耗道具。");
+      return;
+    }
+    const target = findHammerTarget(x, y);
+    if (!target) {
+      setItemStatus("没有点中角色，请点在角色图案上；Esc 可取消。");
+      return;
+    }
+
+    const nextScoreSpent = scoreSpent + HAMMER_COST;
+    if (scoreEarned - nextScoreSpent < 0) {
+      runIntegrityCompromised = true;
+      cancelHammerTargeting("本局积分流水校验失败，道具已停用。");
+      return;
+    }
+    wakeSupportedPieces(target);
+    pieces = pieces.filter((piece) => piece.id !== target.id);
+    if (target.id === pendingDropId) setPendingDrop(null);
+    scoreSpent = nextScoreSpent;
+    score = scoreEarned - scoreSpent;
+    hammersUsed += 1;
+    hammerTargeting = false;
+    updateTouchInstructions();
+    updateInterface();
+    setItemStatus(`重锤砸掉了 ${stages[target.level].id}，扣除 1000 分。`);
+    announcer.textContent = `重锤砸掉了 ${stages[target.level].id}。`;
+    showToast(`重锤命中：${stages[target.level].id}`);
+    if (!runIntegrityIsValid()) runIntegrityCompromised = true;
+    draw();
+  }
+
+  function reviveRun() {
+    if (!gameOver || itemStorageCompromised || itemState.reviveCards < 1) return;
+    if (!runIntegrityIsValid()) {
+      runIntegrityCompromised = true;
+      setItemStatus("本局数据校验失败，无法使用复活卡。");
+      return;
+    }
+    const nextItems = { ...itemState, reviveCards: itemState.reviveCards - 1 };
+    if (!saveItemState(nextItems)) {
+      setItemStatus("无法保存道具库存，复活卡没有被消耗。");
+      return;
+    }
+
+    const removedIds = new Set(
+      pieces.filter((piece) => pieceSilhouetteAabb(piece).top < DANGER_LINE).map((piece) => piece.id),
+    );
+    for (const piece of pieces) {
+      if (removedIds.has(piece.id)) wakeSupportedPieces(piece);
+    }
+    pieces = pieces.filter((piece) => !removedIds.has(piece.id));
+    if (removedIds.has(pendingDropId)) setPendingDrop(null);
+    pieces.forEach((piece) => {
+      piece.dangerTime = 0;
+      wakePiece(piece);
+    });
+
+    gameOver = false;
+    revivalsUsedThisGame += 1;
+    scoreSubmissionStarted = false;
+    hammerTargeting = false;
+    activeTouchGesture = null;
+    if (dialog.open) dialog.close();
+    resultLeaderboardStatus.hidden = true;
+    updateTouchInstructions();
+    updateInterface();
+    setItemStatus(`已使用复活卡，清除了 ${removedIds.size} 个危险区角色；本局重锤上限增加 2 次。`);
+    announcer.textContent = "复活成功，本局重锤次数增加 2 次。";
+    draw();
+  }
+
   function pointerX(event) {
     const bounds = canvas.getBoundingClientRect();
     return clamp(((event.clientX - bounds.left) / bounds.width) * W, LEFT + 14, RIGHT - 14);
+  }
+
+  function pointerY(event) {
+    const bounds = canvas.getBoundingClientRect();
+    return clamp(((event.clientY - bounds.top) / bounds.height) * H, 20, FLOOR - 8);
   }
 
   function resizeCanvas() {
@@ -294,27 +814,37 @@
   canvas.addEventListener("pointermove", (event) => {
     if (event.pointerType === "mouse") {
       aimX = pointerX(event);
+      if (hammerTargeting) hammerAimY = pointerY(event);
       return;
     }
     const gesture = activeTouchGesture;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     aimX = pointerX(event);
+    if (gesture.usingHammer) hammerAimY = pointerY(event);
   });
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) return;
+    if (!window.FishLeaderboard || !window.FishLeaderboard.isProfileReady()) return;
     event.preventDefault();
     if (!assetsReady || gameOver) return;
     canvas.focus({ preventScroll: true });
     if (event.pointerType === "mouse") {
       aimX = pointerX(event);
+      if (hammerTargeting) {
+        hammerAimY = pointerY(event);
+        useHammerAt(aimX, hammerAimY);
+        return;
+      }
       dropCharacter();
       return;
     }
     document.body.classList.add("has-touch-input");
     if (activeTouchGesture) return;
     aimX = pointerX(event);
+    if (hammerTargeting) hammerAimY = pointerY(event);
     activeTouchGesture = {
       pointerId: event.pointerId,
+      usingHammer: hammerTargeting,
     };
     if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
   });
@@ -323,7 +853,12 @@
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     activeTouchGesture = null;
     aimX = pointerX(event);
-    dropCharacter();
+    if (gesture.usingHammer) {
+      hammerAimY = pointerY(event);
+      useHammerAt(aimX, hammerAimY);
+    } else {
+      dropCharacter();
+    }
     updateTouchInstructions();
   });
   window.addEventListener("pointercancel", (event) => {
@@ -331,16 +866,45 @@
   });
   document.getElementById("restart-button").addEventListener("click", restart);
   document.getElementById("dialog-restart").addEventListener("click", () => {
+    if (gameOver) submitFinalScore();
     if (dialog.open) dialog.close();
     restart();
     canvas.focus({ preventScroll: true });
   });
+  achievementContinue.addEventListener("click", () => {
+    if (achievementDialog.open) achievementDialog.close();
+  });
+  achievementDialog.addEventListener("close", () => {
+    if (gameOver && !dialog.open && typeof dialog.showModal === "function") dialog.showModal();
+    else if (!gameOver) canvas.focus({ preventScroll: true });
+  });
+  hammerButton.addEventListener("click", beginHammerTargeting);
+  reviveButton.addEventListener("click", reviveRun);
+  window.addEventListener("fish-profile-updated", updateItemInterface);
+  window.addEventListener("fish-theme-change", draw);
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("keydown", (event) => {
+    if (!window.FishLeaderboard || !window.FishLeaderboard.isProfileReady()) return;
     if (!assetsReady) return;
     const target = event.target;
     if (target instanceof HTMLButtonElement) return;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return;
+    if (hammerTargeting) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelHammerTargeting("已取消重锤瞄准，没有消耗积分。");
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        aimX = clamp(aimX + (event.key === "ArrowLeft" ? -18 : 18), LEFT, RIGHT);
+      } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault();
+        hammerAimY = clamp(hammerAimY + (event.key === "ArrowUp" ? -18 : 18), 20, FLOOR - 8);
+      } else if (event.code === "Space" || event.key === "Enter") {
+        event.preventDefault();
+        useHammerAt(aimX, hammerAimY);
+      }
+      return;
+    }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       aimX = clamp(aimX + (event.key === "ArrowLeft" ? -22 : 22), LEFT + 14, RIGHT - 14);
@@ -353,16 +917,23 @@
   });
 
   function restart() {
-    clearVictorySequence();
+    if (achievementDialog.open) achievementDialog.close();
     pieces = [];
     particles = [];
     score = 0;
+    scoreEarned = 0;
+    scoreSpent = 0;
+    runIntegrityCompromised = false;
+    scoreSubmissionStarted = false;
+    hammersUsed = 0;
+    revivalsUsedThisGame = 0;
+    hammerTargeting = false;
+    hammerAimY = H * 0.55;
     currentLevel = randomStarter();
     nextLevel = randomStarter();
     highestLevel = Math.max(currentLevel, nextLevel);
     aimX = W / 2;
     gameOver = false;
-    won = false;
     activeTouchGesture = null;
     setPendingDrop(null);
     simulationTime = 0;
@@ -371,6 +942,12 @@
     if (dialog.open) dialog.close();
     toast.hidden = true;
     resultAvatar.hidden = true;
+    resultLeaderboardStatus.hidden = true;
+    updateTouchInstructions();
+    updateItemInterface();
+    setItemStatus(itemStorageCompromised
+      ? "本地道具存档校验失败，道具已停用。"
+      : "消耗 1000 本局积分换重锤，选中后点一个角色。");
     announcer.textContent = "新的一局开始";
     draw();
   }
@@ -957,8 +1534,10 @@
     const angularVelocity = ((a.angularVelocity * weightA + b.angularVelocity * weightB) / (weightA + weightB)) * 0.35;
     const alreadyEnteredBoard = a.enteredBoard || b.enteredBoard;
     pieces = pieces.filter((piece) => piece.id !== a.id && piece.id !== b.id);
-    const newLevel = a.level + 1;
-    score += (newLevel + 1) * 10;
+    const newLevel = Math.min(a.level + 1, stages.length - 1);
+    const pointsEarned = (newLevel + 1) * 10;
+    scoreEarned += pointsEarned;
+    score += pointsEarned;
     record = Math.max(record, score);
     try { window.localStorage.setItem("big-fish-record", String(record)); } catch (_) { /* local scores are optional */ }
     emitMerge(x, y, newLevel);
@@ -971,10 +1550,8 @@
     highestLevel = Math.max(highestLevel, newLevel);
     updateInterface();
     announcer.textContent = `合成：${stages[newLevel].id}`;
-    if (newLevel === stages.length - 1) {
-      won = true;
-      finishGame(true);
-    }
+    if (newLevel === stages.length - 1) recordBigFishCreated();
+    else showAchievement(newLevel);
   }
 
   function emitMerge(x, y, newLevel) {
@@ -1002,68 +1579,89 @@
     toastTimer = window.setTimeout(() => { toast.hidden = true; }, 1100);
   }
 
-  function clearVictorySequence() {
-    window.clearTimeout(victoryCertificateTimer);
-    window.clearTimeout(victoryModalTimer);
-    victoryCertificateTimer = 0;
-    victoryModalTimer = 0;
-    victoryToast.hidden = true;
-    victoryCertificate.hidden = true;
+  function recordBigFishCreated() {
+    const earnsCard = itemState.bigFishProgress === 1;
+    const nextState = {
+      reviveCards: Math.min(9999, itemState.reviveCards + (earnsCard ? 1 : 0)),
+      bigFishProgress: earnsCard ? 0 : 1,
+    };
+    if (!saveItemState(nextState)) {
+      setItemStatus("大肥鱼合成成功，但本机无法保存道具进度；请检查浏览器存储空间。");
+      showAchievement(stages.length - 1, { saved: false, earnsCard: false });
+      return;
+    }
+    updateItemInterface();
+    setItemStatus(earnsCard
+      ? `两条大肥鱼已合成，获得复活卡 ×1（当前 ${itemState.reviveCards} 张）。`
+      : "大肥鱼进度 1 / 2；再合成一条即可获得复活卡。");
+    showAchievement(stages.length - 1, { saved: true, earnsCard });
   }
 
-  function startVictorySequence() {
-    clearVictorySequence();
-    const finalImage = stages[stages.length - 1].src;
-    victoryToastAvatar.src = finalImage;
-    victoryCertificateAvatar.src = finalImage;
-    victoryCertificateScore.textContent = `本局积分：${resultScore.textContent}`;
-    victoryToast.hidden = false;
-    announcer.textContent = "通关啦！你已经合成出大肥鱼。";
-
-    victoryCertificateTimer = window.setTimeout(() => {
-      if (!gameOver || !won) return;
-      victoryToast.hidden = true;
-      victoryCertificate.hidden = false;
-      announcer.textContent = `通关认证通过。本局积分：${resultScore.textContent}。`;
-      victoryModalTimer = window.setTimeout(() => {
-        if (!gameOver || !won) return;
-        victoryCertificate.hidden = true;
-        announcer.textContent = "通关成功，本局结束。";
-        if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
-      }, VICTORY_STEP_DELAY);
-    }, VICTORY_STEP_DELAY);
-  }
-
-  function finishGame(completed) {
+  function finishGame() {
     if (gameOver) return;
     gameOver = true;
+    hammerTargeting = false;
+    activeTouchGesture = null;
     updateTouchInstructions();
+    updateItemInterface();
     resultScore.textContent = score.toLocaleString("zh-CN");
-    resultAvatar.hidden = !completed;
-    if (completed) {
-      resultAvatar.src = stages[stages.length - 1].src;
-      resultTitle.textContent = "本局结束";
-      resultCopy.textContent = "恭喜你成功合成出了大肥鱼！";
+    resultAvatar.hidden = true;
+    resultTitle.textContent = "本局结束";
+    resultCopy.textContent = `最高阶段：${stages[highestLevel].id}`;
+    resultLeaderboardStatus.hidden = false;
+    if (!runIntegrityIsValid()) {
+      runIntegrityCompromised = true;
+      resultLeaderboardStatus.textContent = "本局数据校验未通过，成绩不会提交全球排行榜。";
+    } else if (itemState.reviveCards > 0) {
+      resultLeaderboardStatus.textContent = "你有复活卡：复活会继续本局；选择“再开一局”将提交本局成绩。";
     } else {
-      resultTitle.textContent = "本局结束";
-      resultCopy.textContent = `最高阶段：${stages[highestLevel].id}`;
+      submitFinalScore();
     }
-    if (completed) {
-      startVictorySequence();
-    } else {
-      clearVictorySequence();
-      announcer.textContent = "本局结束";
-      if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+    announcer.textContent = "本局结束。你可以使用复活卡继续，或开始新的一局。";
+    if (!achievementDialog.open && typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+  }
+
+  function submitFinalScore() {
+    if (scoreSubmissionStarted) return;
+    scoreSubmissionStarted = true;
+    if (!runIntegrityIsValid()) {
+      runIntegrityCompromised = true;
+      resultLeaderboardStatus.textContent = "本局数据校验未通过，成绩不会提交全球排行榜。";
+      return;
     }
+    if (!window.FishLeaderboard) {
+      resultLeaderboardStatus.textContent = "全球排行榜尚未连接；本地最高纪录仍会保存。";
+      return;
+    }
+    resultLeaderboardStatus.textContent = "正在读取榜单并检查本局成绩…";
+    window.FishLeaderboard.submitScore(score).then((result) => {
+      if (!gameOver) return;
+      if (result.status === "ranked") {
+        resultLeaderboardStatus.textContent = result.rank
+          ? `进入全球前 20 名！当前第 ${result.rank} 名。`
+          : "本局成绩已进入全球前 20 名！";
+      } else if (result.status === "not-ranked") {
+        resultLeaderboardStatus.textContent = result.rank
+          ? `你的昵称当前排第 ${result.rank} 名；本局没有刷新榜单纪录。`
+          : "本局成绩暂未进入全球前 20 名，再接再厉！";
+      } else if (result.status === "unconfigured") {
+        resultLeaderboardStatus.textContent = "全球排行榜尚未连接；本地最高纪录仍会保存。";
+      } else {
+        resultLeaderboardStatus.textContent = "暂时无法连接全球排行榜；本地最高纪录仍会保存。";
+      }
+    }).catch(() => {
+      if (gameOver) resultLeaderboardStatus.textContent = "暂时无法连接全球排行榜；本地最高纪录仍会保存。";
+    });
   }
 
   function drawBackground() {
+    const dark = document.documentElement.dataset.theme === "dark";
     context.clearRect(0, 0, W, H);
-    context.fillStyle = "#f3f8ff";
+    context.fillStyle = dark ? "#15222d" : "#f3f8ff";
     context.fillRect(0, 0, W, H);
 
     context.save();
-    context.strokeStyle = "#c5d8ec";
+    context.strokeStyle = dark ? "#3a5264" : "#c5d8ec";
     context.lineWidth = 1.5;
     context.lineCap = "square";
     context.beginPath();
@@ -1079,13 +1677,13 @@
     context.save();
     context.setLineDash([4, 6]);
     context.lineWidth = 1;
-    context.strokeStyle = "rgb(45 115 191 / 70%)";
+    context.strokeStyle = dark ? "rgb(112 178 223 / 78%)" : "rgb(45 115 191 / 70%)";
     context.beginPath();
     context.moveTo(LEFT + 1, DANGER_LINE);
     context.lineTo(RIGHT - 1, DANGER_LINE);
     context.stroke();
     context.setLineDash([]);
-    context.fillStyle = "#2d73bf";
+    context.fillStyle = dark ? "#9ccbf0" : "#2d73bf";
     context.font = "500 10px 'Microsoft YaHei', sans-serif";
     context.textAlign = "right";
     context.fillText("结束线", RIGHT - 5, DANGER_LINE - 6);
@@ -1151,6 +1749,28 @@
       context.fill();
       context.restore();
     }
+    if (hammerTargeting) {
+      const canHit = Boolean(findHammerTarget(aimX, hammerAimY));
+      context.save();
+      context.strokeStyle = canHit ? "#c34b4b" : "#2d73bf";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(aimX, hammerAimY, 13, 0, Math.PI * 2);
+      context.moveTo(aimX - 19, hammerAimY);
+      context.lineTo(aimX - 7, hammerAimY);
+      context.moveTo(aimX + 7, hammerAimY);
+      context.lineTo(aimX + 19, hammerAimY);
+      context.moveTo(aimX, hammerAimY - 19);
+      context.lineTo(aimX, hammerAimY - 7);
+      context.moveTo(aimX, hammerAimY + 7);
+      context.lineTo(aimX, hammerAimY + 19);
+      context.stroke();
+      context.fillStyle = canHit ? "#a83e3e" : "#2d73bf";
+      context.font = "600 11px 'Microsoft YaHei', sans-serif";
+      context.textAlign = "left";
+      context.fillText(canHit ? "砸击" : "瞄准", aimX + 17, hammerAimY - 12);
+      context.restore();
+    }
   }
 
   function clamp(value, minimum, maximum) {
@@ -1165,13 +1785,14 @@
     }
     const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.032) : 0;
     lastFrame = timestamp;
-    if (!gameOver && dt > 0) update(dt);
+    if (!gameOver && !achievementDialog.open && dt > 0) update(dt);
     draw();
     requestAnimationFrame(frame);
   }
 
   updateInterface();
   updateTouchInstructions();
+  if (itemStorageCompromised) setItemStatus("本地道具存档校验失败，道具已停用；本局成绩不会提交排行榜。");
   resizeCanvas();
   assetRetryButton.addEventListener("click", () => loadStageAssets(true));
   loadStageAssets();
