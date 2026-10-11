@@ -17,6 +17,9 @@
   const BASE_HAMMER_USES = 3;
   const HAMMER_USES_PER_REVIVE = 2;
   const ITEMS_STORAGE_KEY = "big-fish-items-v1";
+  const RUN_STORAGE_KEY = "big-fish-active-run-v1";
+  const RUN_SAVE_VERSION = 1;
+  const RUN_AUTOSAVE_INTERVAL_MS = 1000;
   const COMBO_WINDOW_MS = 350;
   const COMBO_BONUS_RATE = 0.1;
   const GRAVITY = 1450;
@@ -88,6 +91,11 @@
   const resultScore = document.getElementById("result-score");
   const resultLeaderboardStatus = document.getElementById("result-leaderboard-status");
   const resultAvatar = document.getElementById("result-avatar");
+  const recoveryDialog = document.getElementById("run-recovery-dialog");
+  const recoverySummary = document.getElementById("run-recovery-summary");
+  const recoveryContinue = document.getElementById("run-recovery-continue");
+  const recoveryRestart = document.getElementById("run-recovery-restart");
+  const profileSetupDialog = document.getElementById("profile-setup-dialog");
   const touchInstructions = document.getElementById("touch-instructions");
   const achievementDialog = document.getElementById("achievement-dialog");
   const achievementTier = document.getElementById("achievement-tier");
@@ -145,6 +153,8 @@
   let highestLevel = Math.max(currentLevel, nextLevel);
   let aimX = W / 2;
   let gameOver = false;
+  let roundStarted = false;
+  let pendingSavedRun = readSavedRun();
   let pendingDropId = null;
   let activeTouchGesture = null;
   let lastFrame = 0;
@@ -152,6 +162,7 @@
   let lastDropAt = -Infinity;
   let nextPieceId = 1;
   let toastTimer = 0;
+  let lastRunSaveAt = 0;
   let assetsReady = false;
   let assetLoadRun = 0;
   const loadedStageIds = new Set();
@@ -170,6 +181,227 @@
     } catch (_) {
       return fallback;
     }
+  }
+
+  function isNumberInRange(value, minimum, maximum) {
+    return Number.isFinite(value) && value >= minimum && value <= maximum;
+  }
+
+  function isSavedRunValid(saved) {
+    if (!saved || saved.version !== RUN_SAVE_VERSION || saved.roundStarted !== true) return false;
+    if (!Number.isFinite(saved.savedAt) || saved.savedAt <= 0) return false;
+    if (!Number.isSafeInteger(saved.score) || saved.score < 0
+      || !Number.isSafeInteger(saved.scoreEarned) || saved.scoreEarned < 0
+      || !Number.isSafeInteger(saved.scoreSpent) || saved.scoreSpent < 0
+      || saved.score !== saved.scoreEarned - saved.scoreSpent) return false;
+    if (!Number.isSafeInteger(saved.hammersUsed) || saved.hammersUsed < 0
+      || !Number.isSafeInteger(saved.revivalsUsedThisGame) || saved.revivalsUsedThisGame < 0 || saved.revivalsUsedThisGame > 9999
+      || saved.scoreSpent !== saved.hammersUsed * HAMMER_COST
+      || saved.hammersUsed > BASE_HAMMER_USES + saved.revivalsUsedThisGame * HAMMER_USES_PER_REVIVE) return false;
+    if (!Number.isSafeInteger(saved.currentLevel) || saved.currentLevel < 0 || saved.currentLevel >= stages.length
+      || !Number.isSafeInteger(saved.nextLevel) || saved.nextLevel < 0 || saved.nextLevel >= stages.length
+      || !Number.isSafeInteger(saved.highestLevel) || saved.highestLevel < 0 || saved.highestLevel >= stages.length) return false;
+    if (!Number.isFinite(saved.simulationTime) || saved.simulationTime < 0
+      || !isNumberInRange(saved.dropCooldownRemaining, 0, DROP_INTERVAL)
+      || !isNumberInRange(saved.aimX, LEFT - 100, RIGHT + 100)
+      || !isNumberInRange(saved.hammerAimY, 0, H)) return false;
+    if (!Number.isSafeInteger(saved.nextPieceId) || saved.nextPieceId < 1
+      || !Number.isSafeInteger(saved.comboCount) || saved.comboCount < 0 || saved.comboCount > 100000
+      || !Number.isSafeInteger(saved.comboBasePoints) || saved.comboBasePoints < 0
+      || !Number.isSafeInteger(saved.comboAwardedBonus) || saved.comboAwardedBonus < 0
+      || saved.comboAwardedBonus > Math.floor(saved.comboBasePoints * COMBO_BONUS_RATE)
+      || (saved.comboAgeMs !== null && !isNumberInRange(saved.comboAgeMs, 0, Number.MAX_SAFE_INTEGER))) return false;
+    if (typeof saved.runIntegrityCompromised !== "boolean" || !Array.isArray(saved.celebratedStageIds)
+      || saved.celebratedStageIds.length > stages.length
+      || saved.celebratedStageIds.some((id, index, ids) => !stages.some((stage) => stage.id === id) || ids.indexOf(id) !== index)) return false;
+    if (!Array.isArray(saved.pieces) || saved.pieces.length > 500) return false;
+
+    const pieceIds = new Set();
+    let highestPieceLevel = Math.max(saved.currentLevel, saved.nextLevel);
+    for (const piece of saved.pieces) {
+      if (!piece || !Number.isSafeInteger(piece.id) || piece.id < 1 || pieceIds.has(piece.id)
+        || !Number.isSafeInteger(piece.level) || piece.level < 0 || piece.level >= stages.length
+        || !isNumberInRange(piece.x, LEFT - 300, RIGHT + 300)
+        || !isNumberInRange(piece.y, -300, FLOOR + 700)
+        || !isNumberInRange(piece.vx, -10000, 10000)
+        || !isNumberInRange(piece.vy, -10000, 10000)
+        || !isNumberInRange(piece.angle, -Math.PI * 100, Math.PI * 100)
+        || !isNumberInRange(piece.angularVelocity, -10, 10)
+        || !isNumberInRange(piece.squash, -1, 1)
+        || !isNumberInRange(piece.squashAngle, -Math.PI * 100, Math.PI * 100)
+        || !isNumberInRange(piece.sleepTimer, 0, 60)
+        || !isNumberInRange(piece.dangerTime, 0, 60)
+        || !isNumberInRange(piece.mergeLock, 0, 10)
+        || !isNumberInRange(piece.bornAt, 0, saved.simulationTime)
+        || typeof piece.sleeping !== "boolean"
+        || typeof piece.enteredBoard !== "boolean") return false;
+      pieceIds.add(piece.id);
+      highestPieceLevel = Math.max(highestPieceLevel, piece.level);
+    }
+    if (saved.nextPieceId <= Math.max(0, ...pieceIds)
+      || saved.highestLevel < highestPieceLevel
+      || (saved.pendingDropId !== null && (!Number.isSafeInteger(saved.pendingDropId) || !pieceIds.has(saved.pendingDropId)))) return false;
+    return true;
+  }
+
+  function readSavedRun() {
+    let stored;
+    try {
+      stored = window.localStorage.getItem(RUN_STORAGE_KEY);
+    } catch (_) {
+      return null;
+    }
+    if (stored === null) return null;
+    try {
+      const saved = JSON.parse(stored);
+      if (isSavedRunValid(saved)) return saved;
+    } catch (_) {
+      // Ignore and remove malformed local save data.
+    }
+    clearSavedRun();
+    return null;
+  }
+
+  function clearSavedRun() {
+    try { window.localStorage.removeItem(RUN_STORAGE_KEY); } catch (_) { /* local saves are optional */ }
+  }
+
+  function saveRunState() {
+    if (gameOver) {
+      clearSavedRun();
+      return false;
+    }
+    if (!roundStarted) return false;
+
+    const savedAt = Date.now();
+    const comboAgeMs = Number.isFinite(comboLastMergeAt)
+      ? Math.max(0, performance.now() - comboLastMergeAt)
+      : null;
+    const saved = {
+      version: RUN_SAVE_VERSION,
+      savedAt,
+      roundStarted,
+      pieces: pieces.map((piece) => ({
+        id: piece.id,
+        level: piece.level,
+        x: piece.x,
+        y: piece.y,
+        vx: piece.vx,
+        vy: piece.vy,
+        angle: piece.angle,
+        angularVelocity: piece.angularVelocity,
+        squash: piece.squash,
+        squashAngle: piece.squashAngle,
+        sleepTimer: piece.sleepTimer,
+        sleeping: piece.sleeping,
+        dangerTime: piece.dangerTime,
+        enteredBoard: piece.enteredBoard,
+        mergeLock: piece.mergeLock,
+        bornAt: piece.bornAt,
+      })),
+      score,
+      scoreEarned,
+      scoreSpent,
+      runIntegrityCompromised,
+      currentLevel,
+      nextLevel,
+      highestLevel,
+      aimX,
+      hammerAimY,
+      pendingDropId,
+      simulationTime,
+      dropCooldownRemaining: lastDropAt === -Infinity
+        ? 0
+        : clamp(DROP_INTERVAL - (simulationTime - lastDropAt), 0, DROP_INTERVAL),
+      nextPieceId,
+      hammersUsed,
+      revivalsUsedThisGame,
+      comboCount,
+      comboBasePoints,
+      comboAwardedBonus,
+      comboAgeMs,
+      celebratedStageIds: [...celebratedStagesThisGame],
+    };
+    lastRunSaveAt = savedAt;
+    try {
+      window.localStorage.setItem(RUN_STORAGE_KEY, JSON.stringify(saved));
+      return true;
+    } catch (_) {
+      clearSavedRun();
+      return false;
+    }
+  }
+
+  function restoreSavedRun(saved) {
+    pieces = [];
+    simulationTime = saved.simulationTime;
+    for (const savedPiece of saved.pieces) {
+      const piece = addPiece(
+        savedPiece.level,
+        savedPiece.x,
+        savedPiece.y,
+        savedPiece.vx,
+        savedPiece.vy,
+        savedPiece.mergeLock,
+        savedPiece.enteredBoard,
+        savedPiece.angle,
+        savedPiece.angularVelocity,
+      );
+      piece.id = savedPiece.id;
+      piece.squash = savedPiece.squash;
+      piece.squashAngle = savedPiece.squashAngle;
+      piece.sleepTimer = savedPiece.sleepTimer;
+      piece.sleeping = savedPiece.sleeping;
+      piece.dangerTime = savedPiece.dangerTime;
+      piece.bornAt = savedPiece.bornAt;
+    }
+
+    score = saved.score;
+    scoreEarned = saved.scoreEarned;
+    scoreSpent = saved.scoreSpent;
+    runIntegrityCompromised = saved.runIntegrityCompromised;
+    scoreSubmissionStarted = false;
+    currentLevel = saved.currentLevel;
+    nextLevel = saved.nextLevel;
+    highestLevel = saved.highestLevel;
+    aimX = saved.aimX;
+    hammerAimY = saved.hammerAimY;
+    pendingDropId = saved.pendingDropId;
+    nextPieceId = saved.nextPieceId;
+    hammersUsed = saved.hammersUsed;
+    revivalsUsedThisGame = saved.revivalsUsedThisGame;
+    comboCount = saved.comboCount;
+    comboBasePoints = saved.comboBasePoints;
+    comboAwardedBonus = saved.comboAwardedBonus;
+    const elapsedSinceSave = Math.max(0, Date.now() - saved.savedAt);
+    const comboAge = saved.comboAgeMs === null ? Infinity : saved.comboAgeMs + elapsedSinceSave;
+    comboLastMergeAt = comboAge <= COMBO_WINDOW_MS && comboCount > 0
+      ? performance.now() - comboAge
+      : -Infinity;
+    celebratedStagesThisGame = new Set(saved.celebratedStageIds);
+    lastDropAt = simulationTime - (DROP_INTERVAL - saved.dropCooldownRemaining);
+    roundStarted = true;
+    gameOver = false;
+    hammerTargeting = false;
+    activeTouchGesture = null;
+    particles = [];
+    pendingComboToast = null;
+    pendingResultComboToast = null;
+    toast.hidden = true;
+    lastRunSaveAt = Date.now();
+    updateInterface();
+    updateTouchInstructions();
+  }
+
+  function maybeShowRecoveryDialog() {
+    if (!pendingSavedRun || !assetsReady || !window.FishLeaderboard?.isProfileReady()
+      || profileSetupDialog.open || recoveryDialog.open) return;
+    const topStage = stages[highestLevel].id;
+    const pieceLabel = pieces.length === 1 ? "1 只角色" : `${pieces.length} 只角色`;
+    recoverySummary.textContent = `本局积分 ${score.toLocaleString("zh-CN")} · 最高阶段 ${topStage} · 棋盘上 ${pieceLabel}`;
+    recoveryDialog.showModal();
+    recoveryContinue.focus({ preventScroll: true });
+    announcer.textContent = "发现上一局的本地存档，可以继续上一局或重新开始。";
   }
 
   function tierForLevel(level) {
@@ -551,6 +783,7 @@
     lastFrame = 0;
     draw();
     if (!window.FishLeaderboard.isProfileReady()) window.FishLeaderboard.openProfileSetup();
+    else maybeShowRecoveryDialog();
   }
 
   function metricsFor(level) {
@@ -641,6 +874,7 @@
     const metrics = metricsFor(currentLevel);
     const x = clamp(aimX, LEFT + metrics.w / 2, RIGHT - metrics.w / 2);
     const dropped = addPiece(currentLevel, x, DROP_Y + metrics.h / 2);
+    roundStarted = true;
     lastDropAt = simulationTime;
     setPendingDrop(dropped.id);
     highestLevel = Math.max(highestLevel, currentLevel);
@@ -649,6 +883,7 @@
     highestLevel = Math.max(highestLevel, currentLevel, nextLevel);
     updateInterface();
     announcer.textContent = `放下了 ${stages[dropped.level].id}。`;
+    saveRunState();
   }
 
   function pointInPolygon(x, y, vertices) {
@@ -760,6 +995,7 @@
     showToast(`重锤命中：${stages[target.level].id}`);
     if (!runIntegrityIsValid()) runIntegrityCompromised = true;
     draw();
+    saveRunState();
   }
 
   function reviveRun() {
@@ -800,6 +1036,7 @@
     setItemStatus(`已使用复活卡，清除了 ${removedIds.size} 个危险区角色；本局重锤上限增加 2 次。`);
     announcer.textContent = "复活成功，本局重锤次数增加 2 次。";
     draw();
+    saveRunState();
   }
 
   function pointerX(event) {
@@ -879,6 +1116,26 @@
     restart();
     canvas.focus({ preventScroll: true });
   });
+  recoveryContinue.addEventListener("click", () => {
+    pendingSavedRun = null;
+    recoveryDialog.close();
+    announcer.textContent = "已继续上一局。";
+  });
+  recoveryRestart.addEventListener("click", () => {
+    pendingSavedRun = null;
+    clearSavedRun();
+    recoveryDialog.close();
+    restart();
+    canvas.focus({ preventScroll: true });
+  });
+  recoveryDialog.addEventListener("close", () => {
+    if (pendingSavedRun) {
+      pendingSavedRun = null;
+      announcer.textContent = "已继续上一局。";
+    }
+    lastFrame = 0;
+    canvas.focus({ preventScroll: true });
+  });
   achievementContinue.addEventListener("click", () => {
     if (achievementDialog.open) achievementDialog.close();
   });
@@ -900,9 +1157,26 @@
   });
   hammerButton.addEventListener("click", beginHammerTargeting);
   reviveButton.addEventListener("click", reviveRun);
-  window.addEventListener("fish-profile-updated", updateItemInterface);
+  profileSetupDialog.addEventListener("close", maybeShowRecoveryDialog);
+  window.addEventListener("fish-profile-updated", () => {
+    updateItemInterface();
+    maybeShowRecoveryDialog();
+  });
   window.addEventListener("fish-theme-change", draw);
   window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("pagehide", saveRunState);
+  window.addEventListener("beforeunload", saveRunState);
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    const saved = readSavedRun();
+    if (!saved) return;
+    pendingSavedRun = saved;
+    restoreSavedRun(saved);
+    maybeShowRecoveryDialog();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") saveRunState();
+  });
   window.addEventListener("keydown", (event) => {
     if (!window.FishLeaderboard || !window.FishLeaderboard.isProfileReady()) return;
     if (!assetsReady) return;
@@ -937,6 +1211,9 @@
   });
 
   function restart() {
+    pendingSavedRun = null;
+    clearSavedRun();
+    if (recoveryDialog.open) recoveryDialog.close();
     if (achievementDialog.open) achievementDialog.close();
     celebratedStagesThisGame.clear();
     comboCount = 0;
@@ -960,10 +1237,12 @@
     highestLevel = Math.max(currentLevel, nextLevel);
     aimX = W / 2;
     gameOver = false;
+    roundStarted = false;
     activeTouchGesture = null;
     setPendingDrop(null);
     simulationTime = 0;
     lastDropAt = -Infinity;
+    lastRunSaveAt = 0;
     updateInterface();
     toast.hidden = true;
     if (dialog.open) dialog.close();
@@ -1127,6 +1406,8 @@
       particle.vy += 120 * dt;
       return particle.life > 0;
     });
+
+    if (roundStarted && Date.now() - lastRunSaveAt >= RUN_AUTOSAVE_INTERVAL_MS) saveRunState();
   }
 
   function collisionCandidates() {
@@ -1585,6 +1866,7 @@
       if (achievementShown && achievementDialog.open) pendingComboToast = comboToastState;
       else showComboToast(comboToastState.count, comboToastState.totalBonus, comboToastState.stageName);
     }
+    saveRunState();
   }
 
   function trackMergeCombo(pointsEarned) {
@@ -1659,6 +1941,7 @@
   function finishGame() {
     if (gameOver) return;
     gameOver = true;
+    clearSavedRun();
     hammerTargeting = false;
     activeTouchGesture = null;
     updateTouchInstructions();
@@ -1844,11 +2127,14 @@
     }
     const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.032) : 0;
     lastFrame = timestamp;
-    if (!gameOver && !achievementDialog.open && dt > 0) update(dt);
+    const profileReady = window.FishLeaderboard?.isProfileReady();
+    const waitingForRecoveryChoice = pendingSavedRun && (!profileReady || recoveryDialog.open);
+    if (!gameOver && !achievementDialog.open && !waitingForRecoveryChoice && dt > 0) update(dt);
     draw();
     requestAnimationFrame(frame);
   }
 
+  if (pendingSavedRun) restoreSavedRun(pendingSavedRun);
   updateInterface();
   updateTouchInstructions();
   if (itemStorageCompromised) setItemStatus("本地道具存档校验失败，道具已停用；本局成绩不会提交排行榜。");

@@ -419,6 +419,15 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .result-avatar[hidden] { display: none; }
 .result-leaderboard-status { margin: -6px 0 14px !important; color: var(--accent) !important; font-weight: 650; }
 .result-leaderboard-status[hidden] { display: none; }
+.run-recovery-dialog { width: min(390px, calc(100% - 32px)); }
+.run-recovery-dialog .run-recovery-kicker { margin-bottom: 8px; color: var(--accent); font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
+.run-recovery-dialog #run-recovery-copy { margin-bottom: 12px; }
+.run-recovery-summary { padding: 10px 12px; color: var(--ink) !important; background: var(--soft); border: 1px solid var(--border); border-radius: 6px; font-size: .76rem !important; font-weight: 650; font-variant-numeric: tabular-nums; }
+.run-recovery-dialog .primary-button,
+.run-recovery-secondary-button { width: 100%; min-height: 40px; }
+.run-recovery-secondary-button { display: inline-flex; align-items: center; justify-content: center; margin-top: 8px; padding: 0 12px; color: var(--ink); background: var(--soft); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: .74rem; font-weight: 650; transition: background-color .16s ease, transform .16s ease; }
+.run-recovery-secondary-button:hover { background: var(--accent-wash); }
+.run-recovery-secondary-button:active { transform: scale(.97); }
 .dialog-creator-links { margin-top: 16px; padding-top: 13px; border-top: 1px solid #e3ebf2; }
 
 .achievement-dialog {
@@ -664,6 +673,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 :root[data-theme="dark"] .rarity-legend .tier-supreme { color: #b7d6ef; background: #213549; }
 :root[data-theme="dark"] .game-toast { color: #f3f8fb; background: #27465d; }
 :root[data-theme="dark"] .result-stats,
+:root[data-theme="dark"] .run-recovery-summary,
 :root[data-theme="dark"] .leaderboard-player { background: var(--soft); border-color: var(--border); }
 :root[data-theme="dark"] .leaderboard-avatar,
 :root[data-theme="dark"] .leaderboard-row,
