@@ -211,7 +211,7 @@
       || !Number.isSafeInteger(saved.comboCount) || saved.comboCount < 0 || saved.comboCount > 100000
       || !Number.isSafeInteger(saved.comboBasePoints) || saved.comboBasePoints < 0
       || !Number.isSafeInteger(saved.comboAwardedBonus) || saved.comboAwardedBonus < 0
-      || saved.comboAwardedBonus > Math.floor(saved.comboBasePoints * COMBO_BONUS_RATE)
+      || saved.comboAwardedBonus > Math.floor(saved.comboBasePoints * Math.max(0, saved.comboCount - 1) * COMBO_BONUS_RATE)
       || (saved.comboAgeMs !== null && !isNumberInRange(saved.comboAgeMs, 0, Number.MAX_SAFE_INTEGER))) return false;
     if (typeof saved.runIntegrityCompromised !== "boolean" || !Array.isArray(saved.celebratedStageIds)
       || saved.celebratedStageIds.length > stages.length
@@ -1779,7 +1779,7 @@
 
     if (comboCount < 3) return { count: comboCount, bonusAdded: 0, totalBonus: 0 };
 
-    const totalBonus = Math.floor(comboBasePoints * COMBO_BONUS_RATE);
+    const totalBonus = Math.floor(comboBasePoints * (comboCount - 1) * COMBO_BONUS_RATE);
     const bonusAdded = totalBonus - comboAwardedBonus;
     comboAwardedBonus = totalBonus;
     return { count: comboCount, bonusAdded, totalBonus };
@@ -1811,7 +1811,8 @@
   }
 
   function showComboToast(count, totalBonus, stageName) {
-    toast.textContent = `恭喜用户完成 ${count} 连消除！\n合成 ${stageName} · 本轮连消加成 +${totalBonus} 积分`;
+    const bonusRate = Math.round((count - 1) * COMBO_BONUS_RATE * 100);
+    toast.textContent = `恭喜用户完成 ${count} 连消除！\n合成 ${stageName} · 本轮连消加成 +${totalBonus} 积分（额外 ${bonusRate}%）`;
     toast.hidden = false;
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => { toast.hidden = true; }, 1600);
