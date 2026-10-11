@@ -391,7 +391,7 @@
   }
 
   function maybeShowRecoveryDialog() {
-    if (!pendingSavedRun || profileSetupDialog.open || recoveryDialog.open) return;
+    if (!pendingSavedRun || !assetsReady || profileSetupDialog.open || recoveryDialog.open) return;
     const topStage = stages[highestLevel].id;
     const pieceLabel = pieces.length === 1 ? "1 只角色" : `${pieces.length} 只角色`;
     recoverySummary.textContent = `本局积分 ${score.toLocaleString("zh-CN")} · 最高阶段 ${topStage} · 棋盘上 ${pieceLabel}`;
@@ -1194,6 +1194,7 @@
     maybeShowRecoveryDialog();
   });
   window.addEventListener("keydown", (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (!window.FishLeaderboard || !window.FishLeaderboard.isProfileReady()) return;
     if (!assetsReady) return;
     const target = event.target;
