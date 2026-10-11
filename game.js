@@ -22,6 +22,8 @@
   const RUN_SAVE_VERSION = 1;
   const COMBO_WINDOW_MS = 350;
   const COMBO_BONUS_RATE = 0.1;
+  const IMAGE_LOAD_TIMEOUT_MS = 6000;
+  const IMAGE_LOAD_ATTEMPTS = 3;
   const GRAVITY = 1450;
   const BASE_SIZE = 45;
   const CHARACTER_SIZE_SCALE = 1;
@@ -85,7 +87,6 @@
   const assetProgress = document.getElementById("asset-progress");
   const assetRetryButton = document.getElementById("asset-retry");
   const loaderCharacter = document.querySelector(".asset-loader-character");
-  const fontAwesomeLink = document.getElementById("fontawesome-css");
   const resultCopy = document.getElementById("result-copy");
   const resultTitle = document.getElementById("result-title");
   const resultScore = document.getElementById("result-score");
@@ -122,6 +123,13 @@
     row.dataset.tier = tierLabel(tier);
     row.setAttribute("aria-label", `${stage.id}，${tierLabel(tier)}角色`);
     row.innerHTML = `<span class="collection-rank">${String(index + 1).padStart(2, "0")}</span><img alt="" src="${stage.src}"><span class="collection-name"></span><span class="collection-state"></span>`;
+    const avatar = row.querySelector("img");
+    avatar.loading = "lazy";
+    avatar.addEventListener("error", () => {
+      avatar.hidden = true;
+      row.classList.add("image-unavailable");
+    });
+    stage.collectionImage = avatar;
     row.querySelector(".collection-name").textContent = stage.id;
     collectionList.appendChild(row);
     return row;
@@ -165,14 +173,8 @@
   let toastTimer = 0;
   let assetsReady = false;
   let assetLoadRun = 0;
+  let loaderImageAttempted = false;
   const loadedStageIds = new Set();
-  const startupState = {
-    loaderImage: false,
-    fontStylesheet: false,
-    solidIconFont: false,
-    brandIconFont: false,
-    database: false,
-  };
 
   function readNumber(key, fallback) {
     try {
@@ -557,8 +559,8 @@
 
   function updateAssetProgress(run) {
     if (run !== assetLoadRun) return;
-    const total = stages.length + 5;
-    const completed = loadedStageIds.size + Object.values(startupState).filter(Boolean).length;
+    const total = stages.length;
+    const completed = loadedStageIds.size;
     const percent = Math.round((completed / total) * 100);
     assetProgress.style.width = `${percent}%`;
     assetProgress.parentElement.setAttribute("aria-valuenow", String(percent));
@@ -580,7 +582,7 @@
     }
     return new Promise((resolve, reject) => {
       let settled = false;
-      const timer = window.setTimeout(() => finish(false), 12000);
+      const timer = window.setTimeout(() => finish(false), IMAGE_LOAD_TIMEOUT_MS);
       const finish = (success) => {
         if (settled) return;
         settled = true;
@@ -600,7 +602,7 @@
 
   async function loadImageWithRetry(image, source, label, refreshFirst = false) {
     let lastError;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < IMAGE_LOAD_ATTEMPTS; attempt += 1) {
       image.src = refreshFirst || attempt > 0
         ? cacheBustedUrl(source, `${label}-${attempt}`)
         : source;
@@ -609,70 +611,12 @@
         return;
       } catch (error) {
         lastError = error;
-        if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350));
+        if (attempt + 1 < IMAGE_LOAD_ATTEMPTS) {
+          await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 350 : 900));
+        }
       }
     }
     throw lastError || new Error("图片加载失败");
-  }
-
-  function waitForFontStylesheet(retry) {
-    if (!fontAwesomeLink) return Promise.reject(new Error("找不到 Font Awesome 样式"));
-    if (!retry && fontAwesomeLink.dataset.loadState === "loaded") {
-      return Promise.resolve();
-    }
-    if (!retry && fontAwesomeLink.dataset.loadState === "error") {
-      return Promise.reject(new Error("Font Awesome 样式加载失败"));
-    }
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const cleanup = () => {
-        window.clearTimeout(timer);
-        fontAwesomeLink.removeEventListener("load", onLoad);
-        fontAwesomeLink.removeEventListener("error", onError);
-      };
-      const finish = (success) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        if (success) resolve();
-        else reject(new Error("Font Awesome 样式加载失败"));
-      };
-      const onLoad = () => finish(true);
-      const onError = () => finish(false);
-      const timer = window.setTimeout(() => finish(false), 12000);
-      fontAwesomeLink.addEventListener("load", onLoad, { once: true });
-      fontAwesomeLink.addEventListener("error", onError, { once: true });
-      if (retry) {
-        const url = new URL(fontAwesomeLink.href);
-        url.searchParams.set("reload", String(Date.now()));
-        fontAwesomeLink.dataset.loadState = "loading";
-        fontAwesomeLink.href = url.href;
-      } else if (fontAwesomeLink.dataset.loadState === "loaded") {
-        finish(true);
-      } else if (fontAwesomeLink.dataset.loadState === "error") {
-        finish(false);
-      }
-    });
-  }
-
-  async function loadIconFont(declaration, glyph) {
-    if (!document.fonts || typeof document.fonts.load !== "function") {
-      throw new Error("浏览器无法检查图标字体");
-    }
-    let timeout;
-    try {
-      const faces = await Promise.race([
-        document.fonts.load(declaration, glyph),
-        new Promise((_, reject) => {
-          timeout = window.setTimeout(() => reject(new Error("图标字体加载超时")), 12000);
-        }),
-      ]);
-      if (!faces.length || !faces.some((face) => face.status === "loaded")) {
-        throw new Error("图标字体加载失败");
-      }
-    } finally {
-      window.clearTimeout(timeout);
-    }
   }
 
   async function loadStageAssets(retryFailedOnly = false) {
@@ -683,13 +627,18 @@
     assetLoader.hidden = false;
     assetRetryButton.hidden = true;
     assetLoadingTitle.textContent = "正在干饭";
-    assetLoadingMessage.textContent = "大肥鱼正在偷吃用户的白饭，吃完这碗就来玩！";
+    assetLoadingMessage.textContent = "正在准备角色图片；排行榜会在后台连接，不影响离线游玩。";
 
     const tasks = targets.map(async (stage) => {
       try {
         await loadImageWithRetry(stage.image, stage.src, stage.index, retryFailedOnly);
         stage.loadFailed = false;
         loadedStageIds.add(stage.id);
+        if (stage.collectionImage?.hidden) {
+          stage.collectionImage.hidden = false;
+          collectionRows[stage.index].classList.remove("image-unavailable");
+          stage.collectionImage.src = stage.image.currentSrc || stage.image.src;
+        }
       } catch (_) {
         stage.loadFailed = true;
         loadedStageIds.delete(stage.id);
@@ -698,64 +647,10 @@
       updateAssetProgress(run);
     });
 
-    if (!startupState.loaderImage) {
-      tasks.push((async () => {
-        try {
-          await loadImageWithRetry(loaderCharacter, loaderCharacter.getAttribute("src"), "loader", retryFailedOnly);
-          startupState.loaderImage = true;
-        } catch (_) {
-          failures.push("加载页插画");
-        }
-        updateAssetProgress(run);
-      })());
-    }
-
-    const retryFontStylesheet = retryFailedOnly && (!startupState.solidIconFont || !startupState.brandIconFont);
-    if (retryFontStylesheet) startupState.fontStylesheet = false;
-    let stylesheetPromise;
-    const ensureStylesheet = () => {
-      if (!stylesheetPromise) {
-        stylesheetPromise = (async () => {
-          if (startupState.fontStylesheet) return;
-          await waitForFontStylesheet(retryFontStylesheet);
-          startupState.fontStylesheet = true;
-          updateAssetProgress(run);
-        })();
-      }
-      return stylesheetPromise;
-    };
-
-    const iconFonts = [
-      { key: "solidIconFont", declaration: '900 1em "Font Awesome 7 Free"', glyph: "\uf2f1", label: "Font Awesome 实心图标" },
-      { key: "brandIconFont", declaration: '400 1em "Font Awesome 7 Brands"', glyph: "\uf09b", label: "GitHub 品牌图标" },
-    ];
-    for (const font of iconFonts) {
-      if (startupState[font.key]) continue;
-      tasks.push((async () => {
-        try {
-          await ensureStylesheet();
-          await loadIconFont(font.declaration, font.glyph);
-          startupState[font.key] = true;
-        } catch (_) {
-          failures.push(font.label);
-        }
-        updateAssetProgress(run);
-      })());
-    }
-
-    if (!startupState.database) {
-      tasks.push((async () => {
-        try {
-          const leaderboard = window.FishLeaderboard;
-          if (!leaderboard) throw new Error("排行榜模块不可用");
-          const result = retryFailedOnly ? await leaderboard.connect() : await leaderboard.connectionReady;
-          if (result === null) throw new Error("排行榜连接失败");
-          startupState.database = true;
-        } catch (_) {
-          failures.push("全球排行榜连接");
-        }
-        updateAssetProgress(run);
-      })());
+    if (!loaderImageAttempted) {
+      loaderImageAttempted = true;
+      loadImageWithRetry(loaderCharacter, loaderCharacter.getAttribute("src"), "loader")
+        .catch(() => { loaderCharacter.hidden = true; });
     }
 
     updateAssetProgress(run);
@@ -763,16 +658,16 @@
     if (run !== assetLoadRun) return;
 
     if (failures.length) {
-      assetLoadingTitle.textContent = "暂时无法开始";
+      assetLoadingTitle.textContent = "角色图片未加载完整";
       assetLoadingMessage.textContent = `${[...new Set(failures)].join("、")}未能完成，请检查网络后重试。`;
-      assetRetryButton.textContent = "重试加载与连接";
+      assetRetryButton.textContent = "重试加载角色图片";
       assetRetryButton.hidden = false;
       assetRetryButton.focus({ preventScroll: true });
       return;
     }
 
     assetLoadingTitle.textContent = "准备完成";
-    assetLoadingMessage.textContent = "资源已加载，排行榜已连接。";
+    assetLoadingMessage.textContent = "角色图片已加载；排行榜正在后台连接。";
     await new Promise((resolve) => window.setTimeout(resolve, 360));
     if (run !== assetLoadRun) return;
     assetLoader.hidden = true;
@@ -1989,6 +1884,10 @@
           : "本局成绩暂未进入全球前 20 名，再接再厉！";
       } else if (result.status === "unconfigured") {
         resultLeaderboardStatus.textContent = "全球排行榜尚未连接；本地最高纪录仍会保存。";
+      } else if (result.status === "queued") {
+        resultLeaderboardStatus.textContent = "排行榜暂时离线，本局成绩已暂存在本机；联网后会自动校对。";
+      } else if (result.status === "error") {
+        resultLeaderboardStatus.textContent = `本局成绩未能提交（${result.message}）。本地最高纪录仍会保存。`;
       } else {
         resultLeaderboardStatus.textContent = "暂时无法连接全球排行榜；本地最高纪录仍会保存。";
       }
@@ -2017,8 +1916,12 @@
           : "上一局已校对：成绩暂未达到全球前 20 名标准。";
       } else if (result.status === "profile-required") {
         message = "需要先设置玩家名片，上一局成绩才能提交排行榜。";
+      } else if (result.status === "queued") {
+        message = "排行榜暂时离线，上一局成绩已暂存在本机；联网后会自动校对。";
+      } else if (result.status === "error") {
+        message = `上一局成绩未能提交（${result.message}）。`;
       } else {
-        message = "排行榜暂时无法连接，上一局成绩没有提交。";
+        message = "排行榜暂时无法连接，上一局成绩暂未提交。";
       }
       setItemStatus(message);
       announcer.textContent = message;

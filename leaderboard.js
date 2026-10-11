@@ -5,6 +5,9 @@
   const profileKey = "big-fish-leaderboard-profile";
   const legacyPendingProfileNameKey = "big-fish-leaderboard-pending-profile-name-v1";
   const pendingProfileSyncKey = "big-fish-leaderboard-pending-profile-sync-v2";
+  const pendingScoreKey = "big-fish-pending-leaderboard-score-v1";
+  const REQUEST_TIMEOUT_MS = 8000;
+  const REQUEST_ATTEMPTS = 2;
   const playerIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const stagesBySrc = new Map(manifest.assets.map((asset) => [asset.src, asset]));
   const defaultAvatar = manifest.assets.find((asset) => asset.id === "DeepSeek").src;
@@ -27,6 +30,7 @@
   let legacyProfileNeedsClaim = false;
   let profile = readProfile();
   let pendingProfileSync = readPendingProfileSync();
+  let pendingScoreSubmission = readPendingScoreSubmission();
   if (!pendingProfileSync && legacyProfileNeedsClaim && profile.name) {
     pendingProfileSync = { playerId: profile.playerId, previousName: profile.name };
     persistPendingProfileSync();
@@ -78,6 +82,21 @@
     } catch (_) { return null; }
   }
 
+  function readPendingScoreSubmission() {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(pendingScoreKey) || "null");
+      if (!saved || !isPlayerId(saved.playerId) || !Number.isSafeInteger(saved.score) || saved.score < 0) return null;
+      if (!cleanName(saved.name) || !stagesBySrc.has(saved.avatar)) return null;
+      return {
+        playerId: saved.playerId.toLowerCase(),
+        previousName: cleanName(saved.previousName),
+        name: cleanName(saved.name),
+        avatar: saved.avatar,
+        score: saved.score,
+      };
+    } catch (_) { return null; }
+  }
+
   function persistPendingProfileSync() {
     try {
       if (pendingProfileSync) window.localStorage.setItem(pendingProfileSyncKey, JSON.stringify(pendingProfileSync));
@@ -101,17 +120,28 @@
     window.dispatchEvent(new CustomEvent("fish-profile-updated"));
   }
 
+  function setAvatarSource(image, source) {
+    const safeSource = stagesBySrc.has(source) ? source : defaultAvatar;
+    image.hidden = false;
+    image.onerror = () => {
+      image.onerror = null;
+      if (safeSource !== defaultAvatar) setAvatarSource(image, defaultAvatar);
+      else image.hidden = true;
+    };
+    image.src = safeSource;
+  }
+
   function renderProfile() {
     const ready = isProfileReady();
     const avatar = stagesBySrc.has(profile.avatar) ? profile.avatar : defaultAvatar;
-    profileAvatar.src = avatar;
+    setAvatarSource(profileAvatar, avatar);
     profileName.textContent = profile.name || "尚未设置";
     profileNameInput.value = profile.name;
     avatarChoice.value = profile.avatar;
-    avatarPreview.src = avatar;
+    setAvatarSource(avatarPreview, avatar);
     setupNameInput.value = profile.name;
     setupAvatarChoice.value = profile.avatar;
-    setupAvatarPreview.src = avatar;
+    setAvatarSource(setupAvatarPreview, avatar);
     setupAvatarPreview.hidden = !profile.avatar;
     if (ready) {
       try { window.localStorage.setItem(profileKey, JSON.stringify(profile)); } catch (_) { /* local profile is optional */ }
@@ -148,26 +178,50 @@
     return { url, key };
   }
 
+  function isRetryableRequestError(error) {
+    return error?.name === "AbortError"
+      || error instanceof TypeError
+      || [408, 425, 429, 500, 502, 503, 504].includes(error?.status);
+  }
+
+  function describeRequestError(error) {
+    if (error?.name === "AbortError") return "连接超时";
+    if (Number.isInteger(error?.status)) return `服务器返回 HTTP ${error.status}`;
+    return "网络暂不可用";
+  }
+
   async function request(path, options = {}) {
     const config = supabaseConfig();
     if (!config) throw new Error("Supabase 尚未配置");
+    if (window.navigator.onLine === false) throw new TypeError("浏览器报告当前处于离线状态");
     const headers = { apikey: config.key, Accept: "application/json", ...options.headers };
     if (options.body) headers["Content-Type"] = "application/json";
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 12000);
-    try {
-      const response = await window.fetch(`${config.url}/rest/v1/${path}`, {
-        ...options,
-        headers,
-        signal: controller.signal,
-      });
-      const body = await response.text();
-      if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
-      if (!body) return null;
-      try { return JSON.parse(body); } catch (_) { return body; }
-    } finally {
-      window.clearTimeout(timeout);
+    for (let attempt = 0; attempt < REQUEST_ATTEMPTS; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await window.fetch(`${config.url}/rest/v1/${path}`, {
+          ...options,
+          headers,
+          signal: controller.signal,
+        });
+        const body = await response.text();
+        if (!response.ok) {
+          const error = new Error(body || `HTTP ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        if (!body) return null;
+        try { return JSON.parse(body); } catch (_) { return body; }
+      } catch (error) {
+        console.warn(`[合成大肥鱼] 排行榜请求失败：${path}`, error);
+        if (attempt + 1 >= REQUEST_ATTEMPTS || !isRetryableRequestError(error)) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, 450 * (attempt + 1)));
+      } finally {
+        window.clearTimeout(timeout);
+      }
     }
+    throw new Error("排行榜请求失败");
   }
 
   function cleanBoard(entries) {
@@ -201,7 +255,7 @@
       rank.className = "leaderboard-rank";
       rank.textContent = String(index + 1).padStart(2, "0");
       const avatar = document.createElement("img");
-      avatar.src = entry.avatar;
+      setAvatarSource(avatar, entry.avatar);
       avatar.alt = "";
       const name = document.createElement("span");
       name.className = "leaderboard-name";
@@ -233,9 +287,10 @@
       status.textContent = `已读取 ${board.length} 条成绩（最多显示 20 名）`;
       renderBoard();
       if (pendingProfileSync) await syncPendingProfileUpdate();
+      if (pendingScoreSubmission) await flushPendingScoreSubmission();
       return board;
-    } catch (_) {
-      status.textContent = "排行榜暂时无法连接，请稍后重试。";
+    } catch (error) {
+      status.textContent = `排行榜暂时不可用（${describeRequestError(error)}）。游戏仍可离线游玩；可稍后打开排行榜重试。`;
       return null;
     }
   }
@@ -294,18 +349,88 @@
     return board.length < 20 || score > board[board.length - 1].score;
   }
 
+  function queueScoreSubmission(score) {
+    if (!isProfileReady() || !Number.isSafeInteger(score) || score < 0) return false;
+    const previousPending = pendingScoreSubmission;
+    pendingScoreSubmission = {
+      playerId: profile.playerId,
+      previousName: pendingProfileSync?.playerId === profile.playerId ? pendingProfileSync.previousName : "",
+      name: profile.name,
+      avatar: profile.avatar,
+      score: previousPending?.playerId === profile.playerId ? Math.max(previousPending.score, score) : score,
+    };
+    try {
+      window.localStorage.setItem(pendingScoreKey, JSON.stringify(pendingScoreSubmission));
+      return true;
+    } catch (_) {
+      pendingScoreSubmission = previousPending;
+      return false;
+    }
+  }
+
+  function clearPendingScoreSubmission() {
+    pendingScoreSubmission = null;
+    try { window.localStorage.removeItem(pendingScoreKey); } catch (_) { /* the in-memory queue is already cleared */ }
+  }
+
+  async function flushPendingScoreSubmission() {
+    const pending = pendingScoreSubmission;
+    if (!pending || !isProfileReady() || pending.playerId !== profile.playerId) return;
+    if (!qualifies(pending.score)) {
+      clearPendingScoreSubmission();
+      status.textContent = "离线期间的成绩已校对，目前没有刷新排行榜纪录。";
+      return;
+    }
+
+    try {
+      const accepted = await request("rpc/submit_leaderboard_score", {
+        method: "POST",
+        body: JSON.stringify({
+          p_player_id: pending.playerId,
+          p_previous_name: pendingProfileSync?.playerId === profile.playerId
+            ? pendingProfileSync.previousName || null
+            : pending.previousName || null,
+          p_name: profile.name,
+          p_avatar: profile.avatar,
+          p_score: pending.score,
+        }),
+      });
+      if (!accepted) {
+        clearPendingScoreSubmission();
+        status.textContent = "离线期间的成绩已校对，目前没有刷新排行榜纪录。";
+        return;
+      }
+
+      clearPendingScoreSubmission();
+      try {
+        board = await fetchBoardEntries();
+        renderBoard();
+        status.textContent = "离线期间的成绩已校对并同步到排行榜。";
+      } catch (error) {
+        console.warn("[合成大肥鱼] 成绩已提交，但排行榜暂未刷新", error);
+        status.textContent = "离线期间的成绩已提交；排行榜暂时无法刷新，请稍后重试。";
+      }
+    } catch (error) {
+      console.warn("[合成大肥鱼] 离线成绩暂未同步", error);
+      status.textContent = `离线成绩暂未同步（${describeRequestError(error)}），联网后会重试。`;
+    }
+  }
+
   async function submitScore(score) {
     if (!isProfileReady()) return { status: "profile-required" };
     if (!supabaseConfig()) return { status: "unconfigured" };
-    try {
-      const latestBoard = await refreshBoard();
-      if (latestBoard === null) return { status: "offline" };
-      if (!qualifies(score)) {
-        const rank = board.findIndex((entry) => entry.isPlayer);
-        return { status: "not-ranked", rank: rank < 0 ? null : rank + 1 };
-      }
+    const latestBoard = await refreshBoard();
+    if (latestBoard === null) {
+      return { status: queueScoreSubmission(score) ? "queued" : "offline" };
+    }
+    if (!qualifies(score)) {
+      const rank = board.findIndex((entry) => entry.isPlayer);
+      return { status: "not-ranked", rank: rank < 0 ? null : rank + 1 };
+    }
 
-      const accepted = await request("rpc/submit_leaderboard_score", {
+    let accepted;
+    try {
+      accepted = await request("rpc/submit_leaderboard_score", {
         method: "POST",
         body: JSON.stringify({
           p_player_id: profile.playerId,
@@ -315,18 +440,22 @@
           p_score: score,
         }),
       });
-      const updatedBoard = await refreshBoard();
-      if (!accepted) {
-        const rank = board.findIndex((entry) => entry.isPlayer);
-        return { status: "not-ranked", rank: rank < 0 ? null : rank + 1 };
+    } catch (error) {
+      if (isRetryableRequestError(error)) {
+        return { status: queueScoreSubmission(score) ? "queued" : "offline" };
       }
-      const rank = updatedBoard
-        ? updatedBoard.findIndex((entry) => entry.isPlayer)
-        : -1;
-      return { status: "ranked", rank: rank < 0 ? null : rank + 1 };
-    } catch (_) {
-      return { status: "offline" };
+      return { status: "error", message: `${describeRequestError(error)}，请稍后重试。` };
     }
+
+    const updatedBoard = await refreshBoard();
+    if (!accepted) {
+      const rank = board.findIndex((entry) => entry.isPlayer);
+      return { status: "not-ranked", rank: rank < 0 ? null : rank + 1 };
+    }
+    const rank = updatedBoard
+      ? updatedBoard.findIndex((entry) => entry.isPlayer)
+      : -1;
+    return { status: "ranked", rank: rank < 0 ? null : rank + 1 };
   }
 
   document.getElementById("leaderboard-open").addEventListener("click", () => {
@@ -347,10 +476,10 @@
     profileEdit.setAttribute("aria-expanded", "false");
     renderProfile();
   });
-  avatarChoice.addEventListener("change", () => { avatarPreview.src = avatarChoice.value; });
+  avatarChoice.addEventListener("change", () => { setAvatarSource(avatarPreview, avatarChoice.value); });
   setupAvatarChoice.addEventListener("change", () => {
     setupAvatarChoice.setCustomValidity("");
-    setupAvatarPreview.src = setupAvatarChoice.value;
+    setAvatarSource(setupAvatarPreview, setupAvatarChoice.value);
     setupAvatarPreview.hidden = false;
   });
   profileNameInput.addEventListener("input", () => { profileNameInput.setCustomValidity(""); });
@@ -413,4 +542,5 @@
     connect: refreshBoard,
     openProfileSetup,
   });
+  window.addEventListener("online", () => { void refreshBoard(); });
 })();
