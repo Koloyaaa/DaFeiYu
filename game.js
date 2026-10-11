@@ -19,7 +19,6 @@
   const ITEMS_STORAGE_KEY = "big-fish-items-v1";
   const RUN_STORAGE_KEY = "big-fish-active-run-v1";
   const RUN_SAVE_VERSION = 1;
-  const RUN_AUTOSAVE_INTERVAL_MS = 1000;
   const COMBO_WINDOW_MS = 350;
   const COMBO_BONUS_RATE = 0.1;
   const GRAVITY = 1450;
@@ -155,6 +154,7 @@
   let gameOver = false;
   let roundStarted = false;
   let pendingSavedRun = readSavedRun();
+  let hiddenRunNeedsResumePrompt = false;
   let pendingDropId = null;
   let activeTouchGesture = null;
   let lastFrame = 0;
@@ -162,7 +162,6 @@
   let lastDropAt = -Infinity;
   let nextPieceId = 1;
   let toastTimer = 0;
-  let lastRunSaveAt = 0;
   let assetsReady = false;
   let assetLoadRun = 0;
   const loadedStageIds = new Set();
@@ -322,7 +321,6 @@
       comboAgeMs,
       celebratedStageIds: [...celebratedStagesThisGame],
     };
-    lastRunSaveAt = savedAt;
     try {
       window.localStorage.setItem(RUN_STORAGE_KEY, JSON.stringify(saved));
       return true;
@@ -388,14 +386,12 @@
     pendingComboToast = null;
     pendingResultComboToast = null;
     toast.hidden = true;
-    lastRunSaveAt = Date.now();
     updateInterface();
     updateTouchInstructions();
   }
 
   function maybeShowRecoveryDialog() {
-    if (!pendingSavedRun || !assetsReady || !window.FishLeaderboard?.isProfileReady()
-      || profileSetupDialog.open || recoveryDialog.open) return;
+    if (!pendingSavedRun || profileSetupDialog.open || recoveryDialog.open) return;
     const topStage = stages[highestLevel].id;
     const pieceLabel = pieces.length === 1 ? "1 只角色" : `${pieces.length} 只角色`;
     recoverySummary.textContent = `本局积分 ${score.toLocaleString("zh-CN")} · 最高阶段 ${topStage} · 棋盘上 ${pieceLabel}`;
@@ -1122,10 +1118,19 @@
     announcer.textContent = "已继续上一局。";
   });
   recoveryRestart.addEventListener("click", () => {
+    const abandonedRun = {
+      started: roundStarted && !gameOver,
+      score,
+      integrityValid: runIntegrityIsValid(),
+    };
     pendingSavedRun = null;
     clearSavedRun();
     recoveryDialog.close();
     restart();
+    if (abandonedRun.started) {
+      if (abandonedRun.integrityValid) submitRestartedRunScore(abandonedRun.score);
+      else setItemStatus("上一局数据校验未通过，没有提交全球排行榜。");
+    }
     canvas.focus({ preventScroll: true });
   });
   recoveryDialog.addEventListener("close", () => {
@@ -1175,7 +1180,18 @@
     maybeShowRecoveryDialog();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") saveRunState();
+    if (document.visibilityState === "hidden") {
+      hiddenRunNeedsResumePrompt = roundStarted && !gameOver;
+      saveRunState();
+      return;
+    }
+    if (!hiddenRunNeedsResumePrompt) return;
+    hiddenRunNeedsResumePrompt = false;
+    const saved = readSavedRun();
+    if (!saved) return;
+    pendingSavedRun = saved;
+    restoreSavedRun(saved);
+    maybeShowRecoveryDialog();
   });
   window.addEventListener("keydown", (event) => {
     if (!window.FishLeaderboard || !window.FishLeaderboard.isProfileReady()) return;
@@ -1242,7 +1258,6 @@
     setPendingDrop(null);
     simulationTime = 0;
     lastDropAt = -Infinity;
-    lastRunSaveAt = 0;
     updateInterface();
     toast.hidden = true;
     if (dialog.open) dialog.close();
@@ -1407,7 +1422,6 @@
       return particle.life > 0;
     });
 
-    if (roundStarted && Date.now() - lastRunSaveAt >= RUN_AUTOSAVE_INTERVAL_MS) saveRunState();
   }
 
   function collisionCandidates() {
@@ -1996,6 +2010,38 @@
     });
   }
 
+  function submitRestartedRunScore(runScore) {
+    const leaderboard = window.FishLeaderboard;
+    if (!leaderboard?.submitScore) {
+      setItemStatus("排行榜暂不可用，上一局成绩没有提交。");
+      return;
+    }
+
+    setItemStatus("正在校对上一局成绩是否达到排行榜标准…");
+    leaderboard.submitScore(runScore).then((result) => {
+      let message;
+      if (result.status === "ranked") {
+        message = result.rank
+          ? `上一局成绩已计入全球前 20 名，目前第 ${result.rank} 名。`
+          : "上一局成绩已计入全球前 20 名。";
+      } else if (result.status === "not-ranked") {
+        message = result.rank
+          ? `上一局已校对：你的榜单成绩目前第 ${result.rank} 名，本局没有刷新个人纪录。`
+          : "上一局已校对：成绩暂未达到全球前 20 名标准。";
+      } else if (result.status === "profile-required") {
+        message = "需要先设置玩家名片，上一局成绩才能提交排行榜。";
+      } else {
+        message = "排行榜暂时无法连接，上一局成绩没有提交。";
+      }
+      setItemStatus(message);
+      announcer.textContent = message;
+    }).catch(() => {
+      const message = "排行榜暂时无法连接，上一局成绩没有提交。";
+      setItemStatus(message);
+      announcer.textContent = message;
+    });
+  }
+
   function drawBackground() {
     const dark = document.documentElement.dataset.theme === "dark";
     context.clearRect(0, 0, W, H);
@@ -2128,8 +2174,8 @@
     const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.032) : 0;
     lastFrame = timestamp;
     const profileReady = window.FishLeaderboard?.isProfileReady();
-    const waitingForRecoveryChoice = pendingSavedRun && (!profileReady || recoveryDialog.open);
-    if (!gameOver && !achievementDialog.open && !waitingForRecoveryChoice && dt > 0) update(dt);
+    const waitingForRecoveryChoice = pendingSavedRun || recoveryDialog.open;
+    if (!gameOver && !achievementDialog.open && profileReady && !waitingForRecoveryChoice && dt > 0) update(dt);
     draw();
     requestAnimationFrame(frame);
   }
@@ -2139,6 +2185,7 @@
   updateTouchInstructions();
   if (itemStorageCompromised) setItemStatus("本地道具存档校验失败，道具已停用；本局成绩不会提交排行榜。");
   resizeCanvas();
+  if (pendingSavedRun) maybeShowRecoveryDialog();
   assetRetryButton.addEventListener("click", () => loadStageAssets(true));
   loadStageAssets();
   requestAnimationFrame(frame);
