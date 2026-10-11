@@ -10,6 +10,7 @@
   const RIGHT = 396;
   const FLOOR = 594;
   const DANGER_LINE = 118;
+  const GAME_OVER_LINE_GRACE_SECONDS = 3;
   const DROP_Y = 66;
   const DROP_INTERVAL = 0.35;
   const HAMMER_COST = 2000;
@@ -1392,11 +1393,10 @@
         continue;
       }
 
-      // Require a stable overflow for a short grace period. Fast drops and
-      // Merge pops can cross the line briefly without ending the run.
-      if (Math.hypot(piece.vx, piece.vy) < 86) piece.dangerTime += dt;
-      else piece.dangerTime = Math.max(0, piece.dangerTime - dt * 3);
-      if (piece.dangerTime >= 1.15) {
+      // Count continuous time above the line regardless of velocity. Brief
+      // drops and merge pops clear the timer once they return below the line.
+      piece.dangerTime += dt;
+      if (piece.dangerTime >= GAME_OVER_LINE_GRACE_SECONDS) {
         finishGame(false);
         return;
       }
@@ -2031,6 +2031,7 @@
 
   function drawBackground() {
     const dark = document.documentElement.dataset.theme === "dark";
+    const dangerActive = pieces.some((piece) => piece.dangerTime > 0);
     context.clearRect(0, 0, W, H);
     context.fillStyle = dark ? "#15222d" : "#f3f8ff";
     context.fillRect(0, 0, W, H);
@@ -2052,13 +2053,15 @@
     context.save();
     context.setLineDash([4, 6]);
     context.lineWidth = 1;
-    context.strokeStyle = dark ? "rgb(112 178 223 / 78%)" : "rgb(45 115 191 / 70%)";
+    context.strokeStyle = dangerActive
+      ? (dark ? "rgb(255 117 128 / 88%)" : "rgb(198 56 67 / 82%)")
+      : (dark ? "rgb(112 178 223 / 78%)" : "rgb(45 115 191 / 70%)");
     context.beginPath();
     context.moveTo(LEFT + 1, DANGER_LINE);
     context.lineTo(RIGHT - 1, DANGER_LINE);
     context.stroke();
     context.setLineDash([]);
-    context.fillStyle = dark ? "#9ccbf0" : "#2d73bf";
+    context.fillStyle = dangerActive ? (dark ? "#ff9aa2" : "#c63843") : (dark ? "#9ccbf0" : "#2d73bf");
     context.font = "500 10px 'Microsoft YaHei', sans-serif";
     context.textAlign = "right";
     context.fillText("结束线", RIGHT - 5, DANGER_LINE - 6);
