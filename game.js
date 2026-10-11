@@ -154,7 +154,7 @@
   let gameOver = false;
   let roundStarted = false;
   let pendingSavedRun = readSavedRun();
-  let hiddenRunNeedsResumePrompt = false;
+  let pageIsHidden = document.visibilityState === "hidden";
   let pendingDropId = null;
   let activeTouchGesture = null;
   let lastFrame = 0;
@@ -879,7 +879,6 @@
     highestLevel = Math.max(highestLevel, currentLevel, nextLevel);
     updateInterface();
     announcer.textContent = `放下了 ${stages[dropped.level].id}。`;
-    saveRunState();
   }
 
   function pointInPolygon(x, y, vertices) {
@@ -991,7 +990,6 @@
     showToast(`重锤命中：${stages[target.level].id}`);
     if (!runIntegrityIsValid()) runIntegrityCompromised = true;
     draw();
-    saveRunState();
   }
 
   function reviveRun() {
@@ -1032,7 +1030,6 @@
     setItemStatus(`已使用复活卡，清除了 ${removedIds.size} 个危险区角色；本局重锤上限增加 2 次。`);
     announcer.textContent = "复活成功，本局重锤次数增加 2 次。";
     draw();
-    saveRunState();
   }
 
   function pointerX(event) {
@@ -1180,18 +1177,8 @@
     maybeShowRecoveryDialog();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      hiddenRunNeedsResumePrompt = roundStarted && !gameOver;
-      saveRunState();
-      return;
-    }
-    if (!hiddenRunNeedsResumePrompt) return;
-    hiddenRunNeedsResumePrompt = false;
-    const saved = readSavedRun();
-    if (!saved) return;
-    pendingSavedRun = saved;
-    restoreSavedRun(saved);
-    maybeShowRecoveryDialog();
+    pageIsHidden = document.visibilityState === "hidden";
+    if (!pageIsHidden) lastFrame = 0;
   });
   window.addEventListener("keydown", (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -1881,7 +1868,6 @@
       if (achievementShown && achievementDialog.open) pendingComboToast = comboToastState;
       else showComboToast(comboToastState.count, comboToastState.totalBonus, comboToastState.stageName);
     }
-    saveRunState();
   }
 
   function trackMergeCombo(pointsEarned) {
@@ -2176,7 +2162,7 @@
     lastFrame = timestamp;
     const profileReady = window.FishLeaderboard?.isProfileReady();
     const waitingForRecoveryChoice = pendingSavedRun || recoveryDialog.open;
-    if (!gameOver && !achievementDialog.open && profileReady && !waitingForRecoveryChoice && dt > 0) update(dt);
+    if (!pageIsHidden && !gameOver && !achievementDialog.open && profileReady && !waitingForRecoveryChoice && dt > 0) update(dt);
     draw();
     requestAnimationFrame(frame);
   }
