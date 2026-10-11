@@ -28,6 +28,14 @@
         navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {});
       }
     </script>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-3V3FDZ9SW1"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-3V3FDZ9SW1');
+    </script>
   </head>
   <body>
     <main class="app-shell">
