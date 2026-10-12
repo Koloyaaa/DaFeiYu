@@ -62,6 +62,11 @@
             <p>每发射一个豆包，步数加 1。</p>
             <div class="run-stats"><span>发射次数</span><strong id="shot-count">0</strong></div>
             <div class="best-record"><span>个人最佳 <small>步数越少越好</small></span><strong id="best-steps">尚无</strong></div>
+            <div class="time-stats" aria-label="游玩时间">
+              <div><span>本局用时</span><strong id="run-time">00:00</strong></div>
+              <div><span>累计游玩（本机）</span><strong id="total-play-time">00:00</strong></div>
+            </div>
+            <p class="time-note">首次发射开始计时，切到后台时自动暂停。</p>
           </section>
 
           <section class="launch-card" aria-labelledby="launcher-title">
@@ -121,6 +126,7 @@
       <h2 id="win-title">大肥鱼合成成功！</h2>
       <p class="win-copy">一路弹射进化，恭喜通关。</p>
       <div class="final-score"><span>本局消耗步数</span><strong id="final-steps">0</strong></div>
+      <div class="final-score final-time"><span>本局活跃用时</span><strong id="final-time">00:00</strong></div>
       <p id="record-notice" class="record-notice" hidden>新纪录！最佳步数已保存在本机。</p>
       <p class="final-shots">共发射 <strong id="final-shots">0</strong> 次</p>
       <button id="dialog-restart" class="launch-button" type="button">再挑战一次</button>

@@ -81,6 +81,10 @@ kbd { padding: 1px 5px; color: #416277; background: #f0f5f7; border: 1px solid #
 .best-record > span { display: grid; gap: 2px; }
 .best-record small { color: var(--muted); font-size: .52rem; }
 .best-record strong { color: var(--ink); font: 650 .7rem "SF Mono", Consolas, monospace; text-align: right; }
+.time-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 8px; }
+.time-stats > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 5px; padding: 7px 8px; color: #5d7788; background: #f7fbfc; border: 1px solid #d4e3e9; border-radius: 6px; font-size: .58rem; }
+.time-stats strong { flex: 0 0 auto; color: var(--ink); font: 650 .66rem "SF Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.time-note { margin: 5px 0 0; color: var(--muted); font-size: .52rem; text-align: right; }
 
 .launch-card, .rules-card { padding: 13px 14px; }
 .section-kicker { margin-bottom: 3px; font-size: .5rem; }
@@ -138,6 +142,8 @@ kbd { padding: 1px 5px; color: #416277; background: #f0f5f7; border: 1px solid #
 .final-score { display: grid; gap: 5px; padding: 12px; background: #eaf4f8; border: 1px solid #d6e7ee; border-radius: 8px; }
 .final-score span { color: var(--muted); font-size: .62rem; }
 .final-score strong { color: var(--accent); font: 700 1.9rem/1 "SF Mono", Consolas, monospace; }
+.final-time { margin-top: 8px; background: #f7fbfc; }
+.final-time strong { font-size: 1.45rem; }
 .record-notice { margin: 9px 0 0; color: #43845f; font-size: .68rem; font-weight: 700; }
 .record-notice[hidden] { display: none; }
 .final-shots { margin: 10px 0 4px; color: var(--muted); font-size: .67rem; }
