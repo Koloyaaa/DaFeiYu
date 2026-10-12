@@ -10,6 +10,7 @@
   const BASE_RADIUS = 17.5;
   const RADIUS_GROWTH = 1.1;
   const BEST_STEPS_STORAGE_KEY = "decompression-game-best-steps-v1";
+  const TOTAL_PLAY_TIME_STORAGE_KEY = "decompression-game-total-play-ms-v1";
   const STAGE_ORDER = ["豆包", "Mistral", "Gemini", "MuseSpark", "GLM", "Qwen", "Kimi", "Grok", "Claude", "ChatGPT", "DeepSeek"];
   const manifest = window.FISH_ASSET_MANIFEST;
   const order = manifest && Array.isArray(manifest.progressionOrder) ? manifest.progressionOrder : STAGE_ORDER;
@@ -28,6 +29,8 @@
   const stepCountNode = document.getElementById("step-count");
   const shotCountNode = document.getElementById("shot-count");
   const bestStepsNode = document.getElementById("best-steps");
+  const runTimeNode = document.getElementById("run-time");
+  const totalPlayTimeNode = document.getElementById("total-play-time");
   const launchButton = document.getElementById("launch-button");
   const cooldownLabel = document.getElementById("cooldown-label");
   const cooldownProgress = document.getElementById("cooldown-progress");
@@ -43,6 +46,12 @@
   let totalSteps = 0;
   let shotCount = 0;
   let bestSteps = readBestSteps();
+  let totalPlayTimeMs = readTotalPlayTime();
+  let runPlayTimeMs = 0;
+  let persistedRunPlayTimeMs = 0;
+  let playClockResumedAt = null;
+  let playStarted = false;
+  let lastPlayTimeSaveAt = 0;
   let aimAngle = -Math.PI / 2;
   let lastLaunchAt = -Infinity;
   let lastFrameAt = 0;
@@ -83,6 +92,17 @@
     }
   }
 
+  function readTotalPlayTime() {
+    try {
+      const stored = window.localStorage.getItem(TOTAL_PLAY_TIME_STORAGE_KEY);
+      if (stored === null) return 0;
+      const parsed = Number(stored);
+      return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   function saveBestSteps(value) {
     try {
       window.localStorage.setItem(BEST_STEPS_STORAGE_KEY, String(value));
@@ -96,11 +116,60 @@
     bestStepsNode.textContent = bestSteps === null ? "尚无" : `${formatCount(bestSteps)} 步`;
   }
 
+  function formatDuration(milliseconds) {
+    const seconds = Math.floor(Math.max(0, milliseconds) / 1000);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    const pad = (value) => String(value).padStart(2, "0");
+    return hours > 0 ? `${hours}:${pad(minutes)}:${pad(remainingSeconds)}` : `${pad(Math.floor(seconds / 60))}:${pad(remainingSeconds)}`;
+  }
+
+  function getRunPlayTime(now = performance.now()) {
+    const currentSegment = playClockResumedAt === null ? 0 : Math.max(0, now - playClockResumedAt);
+    return runPlayTimeMs + currentSegment;
+  }
+
+  function startPlayClock(now) {
+    if (playStarted || won) return;
+    playStarted = true;
+    lastPlayTimeSaveAt = now;
+    if (!document.hidden) playClockResumedAt = now;
+  }
+
+  function pausePlayClock(now = performance.now()) {
+    if (playClockResumedAt === null) return;
+    runPlayTimeMs += Math.max(0, now - playClockResumedAt);
+    playClockResumedAt = null;
+  }
+
+  function persistPlayTime(now = performance.now()) {
+    if (!playStarted) return;
+    const currentRunMs = Math.floor(getRunPlayTime(now));
+    const elapsedSinceSave = currentRunMs - persistedRunPlayTimeMs;
+    if (elapsedSinceSave <= 0) return;
+    totalPlayTimeMs += elapsedSinceSave;
+    persistedRunPlayTimeMs = currentRunMs;
+    try {
+      window.localStorage.setItem(TOTAL_PLAY_TIME_STORAGE_KEY, String(totalPlayTimeMs));
+    } catch (_) {
+      // Keep the in-memory total for this page even when local storage is unavailable.
+    }
+  }
+
   function updateHud(now) {
+    if (playStarted && now - lastPlayTimeSaveAt >= 1000) {
+      persistPlayTime(now);
+      lastPlayTimeSaveAt = now;
+    }
     const stepsText = formatCount(totalSteps);
     const shotsText = formatCount(shotCount);
     if (stepCountNode.textContent !== stepsText) stepCountNode.textContent = stepsText;
     if (shotCountNode.textContent !== shotsText) shotCountNode.textContent = shotsText;
+    const runTimeText = formatDuration(getRunPlayTime(now));
+    const totalTimeText = formatDuration(totalPlayTimeMs + Math.max(0, getRunPlayTime(now) - persistedRunPlayTimeMs));
+    if (runTimeNode.textContent !== runTimeText) runTimeNode.textContent = runTimeText;
+    if (totalPlayTimeNode.textContent !== totalTimeText) totalPlayTimeNode.textContent = totalTimeText;
 
     const elapsed = now - lastLaunchAt;
     const fraction = lastLaunchAt === -Infinity ? 1 : clamp(elapsed / MIN_LAUNCH_INTERVAL, 0, 1);
@@ -136,6 +205,8 @@
   function fire() {
     const now = performance.now();
     if (won || now - lastLaunchAt < MIN_LAUNCH_INTERVAL) return false;
+
+    startPlayClock(now);
 
     const vx = Math.cos(aimAngle) * LAUNCH_SPEED;
     const vy = Math.sin(aimAngle) * LAUNCH_SPEED;
@@ -322,6 +393,9 @@
   }
 
   function finishGame() {
+    const finishedAt = performance.now();
+    pausePlayClock(finishedAt);
+    persistPlayTime(finishedAt);
     won = true;
     const isNewRecord = bestSteps === null || totalSteps < bestSteps;
     let recordWasSaved = true;
@@ -335,10 +409,11 @@
     gameStatus.textContent = `大肥鱼合成成功！本局消耗 ${formatCount(totalSteps)} 步。`;
     document.getElementById("final-steps").textContent = formatCount(totalSteps);
     document.getElementById("final-shots").textContent = formatCount(shotCount);
+    document.getElementById("final-time").textContent = formatDuration(getRunPlayTime(finishedAt));
     recordNotice.hidden = !isNewRecord;
     recordNotice.textContent = recordWasSaved ? "新纪录！最佳步数已保存在本机。" : "新纪录！本机暂时无法保存这项纪录。";
     renderBestSteps();
-    updateHud(performance.now());
+    updateHud(finishedAt);
     if (typeof winDialog.showModal === "function") winDialog.showModal();
     else winDialog.setAttribute("open", "");
   }
@@ -408,11 +483,19 @@
   }
 
   function resetGame() {
+    const now = performance.now();
+    pausePlayClock(now);
+    persistPlayTime(now);
     if (winDialog.open && typeof winDialog.close === "function") winDialog.close();
     balls = [];
     nextBallId = 1;
     totalSteps = 0;
     shotCount = 0;
+    runPlayTimeMs = 0;
+    persistedRunPlayTimeMs = 0;
+    playClockResumedAt = null;
+    playStarted = false;
+    lastPlayTimeSaveAt = now;
     aimAngle = -Math.PI / 2;
     lastLaunchAt = -Infinity;
     lastFrameAt = 0;
@@ -424,7 +507,7 @@
     gameStatus.textContent = "只发射豆包。两个同阶角色碰撞后，会合成下一阶。";
     recordNotice.hidden = true;
     renderBestSteps();
-    updateHud(performance.now());
+    updateHud(now);
     drawBoard();
     if (!animationFrameId) animationFrameId = window.requestAnimationFrame(animate);
   }
@@ -466,6 +549,24 @@
       event.preventDefault();
       aimAngle = clamp(aimAngle + 0.04, -Math.PI + 0.16, -0.16);
     }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    const now = performance.now();
+    if (document.hidden) {
+      pausePlayClock(now);
+      persistPlayTime(now);
+    } else if (playStarted && !won) {
+      playClockResumedAt = now;
+      lastPlayTimeSaveAt = now;
+      updateHud(now);
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    const now = performance.now();
+    pausePlayClock(now);
+    persistPlayTime(now);
   });
 
   if (typeof ResizeObserver === "function") {
