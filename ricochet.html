@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#edf4f7" />
+    <meta name="description" content="在无阻力的封闭空间里发射豆包，利用弹性碰撞合成大肥鱼，看看最少需要多少步。" />
+    <title>解压小游戏 · 合成大肥鱼</title>
+    <link rel="icon" type="image/webp" href="./Assets/processed/DeepSeek.webp?v=2" />
+    <link rel="stylesheet" href="./ricochet.css" />
+    <script>
+      if ("serviceWorker" in navigator && location.protocol !== "file:") {
+        navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {});
+      }
+    </script>
+  </head>
+  <body>
+    <main class="ricochet-shell">
+      <header class="topbar">
+        <a class="brand" href="./index.html" aria-label="返回合成大肥鱼主游戏">
+          <img src="./Assets/processed/DeepSeek.webp?v=2" alt="" />
+          <span>合成大肥鱼</span>
+        </a>
+        <a class="back-link" href="./index.html"><span aria-hidden="true">←</span> 返回原游戏</a>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">独立新玩法 · 无重力弹射舱</p>
+        <h1 id="page-title">解压小游戏</h1>
+        <p>没有重力，也没有阻力。瞄准、发射豆包，看着它们一路碰撞进化，直到合成大肥鱼。</p>
+      </section>
+
+      <div class="game-layout">
+        <section class="arena-card" aria-label="弹射游戏区域">
+          <div class="arena-heading">
+            <div>
+              <span class="arena-kicker">THE BOUNCE CHAMBER</span>
+              <h2>封闭弹射舱</h2>
+            </div>
+            <span id="arena-state" class="arena-state"><span aria-hidden="true"></span> 等待发射</span>
+          </div>
+          <div class="canvas-frame">
+            <canvas id="ricochet-board" width="560" height="760" tabindex="0" role="img"
+              aria-label="封闭的弹射空间。移动鼠标或拖动瞄准，松开鼠标或触屏发射；相同角色碰撞后合成。">
+              你的浏览器不支持画布游戏，请换一个较新的浏览器。
+            </canvas>
+          </div>
+          <p class="arena-instructions">
+            <span>鼠标移动或触屏拖动瞄准</span>
+            <span class="instruction-separator" aria-hidden="true">·</span>
+            <span>方向键微调；点击场地或按 <kbd>Space</kbd> / <kbd>Enter</kbd> 发射</span>
+          </p>
+        </section>
+
+        <aside class="control-column" aria-label="发射设置与游戏进度">
+          <section class="step-card" aria-label="步数与个人纪录">
+            <div class="step-heading">
+              <span>本局已用步数</span>
+              <span class="step-mark" aria-hidden="true">STEP</span>
+            </div>
+            <strong id="step-count" aria-live="polite">0</strong>
+            <p>每发射一个豆包，步数加 1。</p>
+            <div class="run-stats"><span>发射次数</span><strong id="shot-count">0</strong></div>
+            <div class="best-record"><span>个人最佳 <small>步数越少越好</small></span><strong id="best-steps">尚无</strong></div>
+          </section>
+
+          <section class="launch-card" aria-labelledby="launcher-title">
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">LAUNCHER</p>
+                <h2 id="launcher-title">发射角色</h2>
+              </div>
+              <span class="unlock-note">仅豆包 · +1 步</span>
+            </div>
+            <div class="selected-role">
+              <img src="./Assets/processed/豆包.webp?v=2" alt="" />
+              <div>
+                <span>固定发射角色</span>
+                <strong>豆包</strong>
+              </div>
+              <span class="selected-cost">+1 步</span>
+            </div>
+            <button id="launch-button" class="launch-button" type="button">
+              <span class="launch-icon" aria-hidden="true">↗</span>
+              <span id="launch-button-label">发射豆包 · +1 步</span>
+            </button>
+            <div class="cooldown" aria-hidden="true"><span id="cooldown-progress"></span></div>
+            <p id="cooldown-label" class="cooldown-label">准备就绪 · 最快每 0.35 秒发射一颗</p>
+            <p id="game-status" class="game-status" role="status" aria-live="polite">只发射豆包。两个同阶角色碰撞后，会合成下一阶。</p>
+          </section>
+
+          <section class="rules-card" aria-labelledby="rules-title">
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">HOW TO PLAY</p>
+                <h2 id="rules-title">规则</h2>
+              </div>
+            </div>
+            <ul class="rules-list">
+              <li><span class="rule-number">01</span><span>相同角色相撞，合成下一阶；不同角色会弹开。</span></li>
+              <li><span class="rule-number">02</span><span>每次发射至少间隔 0.35 秒，空间里的球不会减速。</span></li>
+              <li><span class="rule-number">03</span><span>只能发射豆包，每发计 1 步；合成出的其他角色会留在弹射舱里。</span></li>
+              <li><span class="rule-number">04</span><span>合成 DeepSeek（大肥鱼）即结束，结算本局步数。</span></li>
+            </ul>
+          </section>
+
+          <button id="restart-button" class="restart-button" type="button">重新开始</button>
+        </aside>
+      </div>
+
+      <footer class="page-footer">
+        <span>解压小游戏与原游戏独立运行</span>
+        <span aria-hidden="true">·</span>
+        <a href="./index.html">回到合成大肥鱼</a>
+      </footer>
+    </main>
+
+    <dialog id="win-dialog" class="win-dialog" aria-labelledby="win-title">
+      <img class="win-avatar" src="./Assets/processed/DeepSeek.webp?v=2" alt="DeepSeek 大肥鱼" />
+      <p class="section-kicker">CHAMBER COMPLETE</p>
+      <h2 id="win-title">大肥鱼合成成功！</h2>
+      <p class="win-copy">一路弹射进化，恭喜通关。</p>
+      <div class="final-score"><span>本局消耗步数</span><strong id="final-steps">0</strong></div>
+      <p id="record-notice" class="record-notice" hidden>新纪录！最佳步数已保存在本机。</p>
+      <p class="final-shots">共发射 <strong id="final-shots">0</strong> 次</p>
+      <button id="dialog-restart" class="launch-button" type="button">再挑战一次</button>
+    </dialog>
+
+    <script src="./Assets/processed/manifest.js"></script>
+    <script src="./ricochet.js"></script>
+  </body>
+</html>
