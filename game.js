@@ -1881,7 +1881,7 @@
           : "本局成绩已进入全球前 20 名！";
       } else if (result.status === "not-ranked") {
         resultLeaderboardStatus.textContent = result.rank
-          ? `你的昵称当前排第 ${result.rank} 名；本局没有刷新榜单纪录。`
+          ? `你的排行榜记录当前排第 ${result.rank} 名；本局没有刷新个人最高分。`
           : "本局成绩暂未进入全球前 20 名，再接再厉！";
       } else if (result.status === "unconfigured") {
         resultLeaderboardStatus.textContent = "全球排行榜尚未连接；本地最高纪录仍会保存。";
